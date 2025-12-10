@@ -1,0 +1,62 @@
+package com.example.karaokeapp.ui.screen
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+
+@Composable
+fun HomeScreen(onLogout: () -> Unit) {
+    var selectedTab by remember { mutableIntStateOf(0) }
+
+    Scaffold(
+        bottomBar = {
+            NavigationBar(
+                containerColor = Color.White
+            ) {
+                val items = listOf("Trang chủ", "Khoảnh khắc", "Hát", "Trò chuyện", "Tôi")
+                val icons = listOf(
+                    Icons.Default.Home,
+                    Icons.Default.AccessTime,
+                    Icons.Default.Mic,
+                    Icons.Default.Chat,
+                    Icons.Default.Person
+                )
+
+                items.forEachIndexed { index, item ->
+                    NavigationBarItem(
+                        icon = { Icon(icons[index], contentDescription = item) },
+                        label = { Text(item) },
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Color(0xFFFF00CC),
+                            indicatorColor = Color.Transparent
+                        )
+                    )
+                }
+            }
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            contentAlignment = Alignment.Center
+        ) {
+            when (selectedTab) {
+                0 -> Text("Nội dung Trang Chủ (List nhạc)")
+                1 -> Text("Nội dung Khoảnh Khắc")
+                2 -> Text("Màn hình Hát")
+                3 -> Text("Màn hình Chat")
+                4 -> Text("Thông tin cá nhân")
+            }
+        }
+    }
+}

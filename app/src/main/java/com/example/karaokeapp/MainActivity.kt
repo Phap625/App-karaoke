@@ -1,0 +1,61 @@
+package com.example.karaokeapp
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.example.karaokeapp.ui.screen.HomeScreen
+import com.example.karaokeapp.ui.screen.LoginScreen
+import com.example.karaokeapp.ui.screen.RegisterScreen
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            val navController = rememberNavController()
+
+            NavHost(navController = navController, startDestination = "login") {
+                // Màn hình Login
+                composable("login") {
+                    LoginScreen(
+                        onLoginSuccess = {
+                            navController.navigate("home") {
+                                popUpTo("login") { inclusive = true }
+                            }
+                        },
+                        onNavigateToRegister = {
+                            navController.navigate("register")
+                        }
+                    )
+                }
+
+                // Màn hình Home
+                composable("home") {
+                    HomeScreen(
+                        onLogout = {
+                            navController.navigate("login") {
+                                popUpTo("home") { inclusive = true }
+                            }
+                        }
+                    )
+                }
+
+                // Màn hình Register
+                composable("register") {
+                    RegisterScreen(
+                        onRegisterSuccess = {
+                            navController.navigate("login") {
+                                popUpTo("register") { inclusive = true }
+                            }
+                        },
+                        onBackClick = {
+                            navController.popBackStack()
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
