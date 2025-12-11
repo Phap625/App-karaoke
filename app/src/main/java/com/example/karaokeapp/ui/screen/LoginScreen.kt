@@ -87,7 +87,7 @@ fun LoginScreen(
                                 Toast.makeText(context, "Lỗi: $message", Toast.LENGTH_SHORT).show()
                             }
                         } catch (e: Exception) {
-                            Toast.makeText(context, "Không thể kết nối Server! (Hãy bật server.js)", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "Không thể kết nối Server!", Toast.LENGTH_LONG).show()
                             e.printStackTrace()
                         } finally {
                             isLoading = false
