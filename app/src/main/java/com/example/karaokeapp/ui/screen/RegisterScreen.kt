@@ -6,7 +6,9 @@ import android.content.ContextWrapper
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,18 +18,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.karaokeapp.models.RegisterRequest
 import com.example.karaokeapp.network.RetrofitClient
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.PhoneAuthOptions
-import com.google.firebase.FirebaseException
-import com.google.firebase.auth.PhoneAuthCredential
-import com.google.firebase.auth.PhoneAuthProvider
 import kotlinx.coroutines.launch
-import androidx.compose.ui.text.input.TextFieldValue
-import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,169 +32,167 @@ fun RegisterScreen(
     onRegisterSuccess: () -> Unit,
     onBackClick: () -> Unit
 ) {
-    // Biến nhập liệu
-    var phone by remember { mutableStateOf("") }
-    var otpInput by remember { mutableStateOf("") }
-    var fullName by remember { mutableStateOf(TextFieldValue("")) }
+    // 1. Khai báo biến
+    var email by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf("") }
+    var fullName by remember { mutableStateOf(TextFieldValue("")) } // Dùng TextFieldValue fix lỗi tiếng Việt
     var password by remember { mutableStateOf("") }
-
-    // Trạng thái màn hình
-    var isOtpSent by remember { mutableStateOf(false) }
-    var isVerified by remember { mutableStateOf(false) }
+    var confirmPassword by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
 
-    // Firebase
+    // Firebase & Context
     val auth = FirebaseAuth.getInstance()
-    var verificationId by remember { mutableStateOf("") }
     val context = LocalContext.current
-    val activity = context.findActivity()
     val scope = rememberCoroutineScope()
 
-    val callbacks = remember {
-        object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
-            override fun onVerificationCompleted(credential: PhoneAuthCredential) {}
-
-            override fun onVerificationFailed(e: FirebaseException) {
-                isLoading = false
-                Toast.makeText(context, "Lỗi gửi tin: ${e.message}", Toast.LENGTH_LONG).show()
-            }
-
-            override fun onCodeSent(vId: String, token: PhoneAuthProvider.ForceResendingToken) {
-                verificationId = vId
-                isOtpSent = true
-                isLoading = false
-                Toast.makeText(context, "Đã gửi mã OTP!", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
+    // Scroll state
+    val scrollState = rememberScrollState()
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp).background(Color.White),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White)
+            .padding(24.dp)
+            .verticalScroll(scrollState),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("ĐĂNG KÝ", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFF00CC))
+        Text("ĐĂNG KÝ TÀI KHOẢN", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFF00CC))
         Spacer(modifier = Modifier.height(24.dp))
 
-        if (!isVerified) {
-            OutlinedTextField(
-                value = phone,
-                onValueChange = { phone = it },
-                label = { Text("Số điện thoại") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !isOtpSent && !isLoading
-            )
-            Spacer(modifier = Modifier.height(12.dp))
+        // --- FORM NHẬP LIỆU ---
 
-            if (isOtpSent) {
-                OutlinedTextField(
-                    value = otpInput,
-                    onValueChange = { otpInput = it },
-                    label = { Text("Nhập mã 6 số") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(12.dp))
+        // 1. Email
+        OutlinedTextField(
+            value = email,
+            onValueChange = { email = it },
+            label = { Text("Email") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !isLoading
+        )
+        Spacer(modifier = Modifier.height(12.dp))
 
-                Button(
-                    onClick = {
-                        if (activity != null && verificationId.isNotEmpty() && otpInput.isNotEmpty()) {
-                            val credential = PhoneAuthProvider.getCredential(verificationId, otpInput)
+        // 2. Tên đăng nhập
+        OutlinedTextField(
+            value = username,
+            onValueChange = { username = it },
+            label = { Text("Tên đăng nhập (viết liền)") },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !isLoading
+        )
+        Spacer(modifier = Modifier.height(12.dp))
 
-                            auth.signInWithCredential(credential)
-                                .addOnCompleteListener(activity) { task ->
-                                    if (task.isSuccessful) {
-                                        isVerified = true
-                                        Toast.makeText(context, "Xác thực thành công!", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "Mã OTP sai rồi!", Toast.LENGTH_SHORT).show()
+        // 3. Họ tên
+        OutlinedTextField(
+            value = fullName,
+            onValueChange = { fullName = it },
+            label = { Text("Họ và tên") },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !isLoading
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 4. Mật khẩu
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Mật khẩu") },
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !isLoading
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 5. Xác nhận mật khẩu
+        OutlinedTextField(
+            value = confirmPassword,
+            onValueChange = { confirmPassword = it },
+            label = { Text("Nhập lại mật khẩu") },
+            visualTransformation = PasswordVisualTransformation(),
+            isError = (confirmPassword.isNotEmpty() && confirmPassword != password),
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !isLoading
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- NÚT ĐĂNG KÝ ---
+        Button(
+            onClick = {
+                // Validate cơ bản
+                if (password != confirmPassword) {
+                    Toast.makeText(context, "Mật khẩu xác nhận không khớp!", Toast.LENGTH_SHORT).show()
+                    return@Button
+                }
+
+                if (email.isNotEmpty() && username.isNotEmpty() && password.isNotEmpty() && fullName.text.isNotEmpty()) {
+                    isLoading = true
+
+                    // BƯỚC 1: Tạo User trên Firebase
+                    auth.createUserWithEmailAndPassword(email, password)
+                        .addOnCompleteListener { task ->
+                            if (task.isSuccessful) {
+                                val user = auth.currentUser
+
+                                // BƯỚC 2: Gửi Email xác thực
+                                user?.sendEmailVerification()
+                                    ?.addOnCompleteListener { verifyTask ->
+                                        if (verifyTask.isSuccessful) {
+                                            Toast.makeText(context, "Đã gửi link xác thực đến ${user.email}", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+
+                                // BƯỚC 3: Gọi API lưu vào Database (Supabase)
+                                scope.launch {
+                                    try {
+                                        val request = RegisterRequest(email, username, password, fullName.text)
+                                        val res = RetrofitClient.api.register(request)
+
+                                        if (res.isSuccessful && res.body()?.status == "success") {
+                                            Toast.makeText(context, "Đăng ký thành công! Vui lòng kiểm tra Email.", Toast.LENGTH_LONG).show()
+                                            onRegisterSuccess()
+                                        } else {
+                                            // QUAN TRỌNG: Nếu Server lỗi (VD trùng username), XÓA user trên Firebase ngay
+                                            // để người dùng không bị kẹt (có Firebase mà không có Supabase)
+                                            user?.delete()
+                                            Toast.makeText(context, "Lỗi: ${res.body()?.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } catch (e: Exception) {
+                                        // Lỗi mạng -> Cũng xóa Firebase đi làm lại
+                                        user?.delete()
+                                        Toast.makeText(context, "Lỗi kết nối Server!", Toast.LENGTH_SHORT).show()
+                                    } finally {
+                                        isLoading = false
                                     }
                                 }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF00CC))
-                ) { Text("XÁC NHẬN MÃ OTP") }
-
-            } else {
-                Button(
-                    onClick = {
-                        if (phone.isNotEmpty()) {
-                            isLoading = true
-                            var formattedPhone = phone
-                            if (phone.startsWith("0")) {
-                                formattedPhone = "+84" + phone.substring(1)
-                            }
-
-                            val options = PhoneAuthOptions.newBuilder(auth)
-                                .setPhoneNumber(formattedPhone)
-                                .setTimeout(60L, TimeUnit.SECONDS)
-                                .setActivity(activity!!)
-                                .setCallbacks(callbacks)
-                                .build()
-                            PhoneAuthProvider.verifyPhoneNumber(options)
-                        } else {
-                            Toast.makeText(context, "Nhập số điện thoại trước!", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF00CC)),
-                    enabled = !isLoading
-                ) {
-                    if (isLoading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
-                    else Text("GỬI MÃ OTP (MIỄN PHÍ)")
-                }
-            }
-        }
-
-        if (isVerified) {
-            Text("✅ SĐT đã xác minh: $phone", color = Color(0xFF00AA00), fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(12.dp))
-
-            OutlinedTextField(value = fullName, onValueChange = { newValue ->
-                fullName = newValue
-            }, label = { Text("Họ và tên") }, modifier = Modifier.fillMaxWidth())
-            Spacer(modifier = Modifier.height(12.dp))
-
-            OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Tạo mật khẩu") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Button(
-                onClick = {
-                    scope.launch {
-                        try {
-                            val res = RetrofitClient.api.register(RegisterRequest(phone, password, fullName.text))
-                            if (res.isSuccessful && res.body()?.status == "success") {
-                                Toast.makeText(context, "Tạo tài khoản thành công!", Toast.LENGTH_LONG).show()
-                                onRegisterSuccess()
-
                             } else {
-                                Toast.makeText(context, "Lỗi: ${res.body()?.message}", Toast.LENGTH_SHORT).show()
+                                // Lỗi Firebase (Email đã tồn tại, pass yếu...)
+                                Toast.makeText(context, "Lỗi: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
+                                isLoading = false
                             }
-                        } catch (_: Exception) {
-                            Toast.makeText(context, "Lỗi kết nối Server!", Toast.LENGTH_SHORT).show()
                         }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().height(50.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF00CC))
-            ) { Text("HOÀN TẤT ĐĂNG KÝ") }
+                } else {
+                    Toast.makeText(context, "Vui lòng nhập đầy đủ thông tin", Toast.LENGTH_SHORT).show()
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF00CC)),
+            enabled = !isLoading
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+            } else {
+                Text("ĐĂNG KÝ")
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-
-        TextButton(onClick = {
-            onBackClick()
-        }) {
+        TextButton(onClick = { onBackClick() }) {
             Text("Quay lại Đăng nhập", color = Color.Gray)
         }
     }
-}
-
-fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
 }

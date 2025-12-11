@@ -1,28 +1,34 @@
 package com.example.karaokeapp.models
 
-// 1. Dữ liệu gửi đi khi đăng nhập
+data class RegisterRequest(
+    val email: String,
+    val username: String,
+    val password: String,
+    val fullName: String
+)
+
 data class LoginRequest(
-    val phone: String,
+    val identifier: String,
     val password: String
 )
 
-// 2. Dữ liệu User nhận về
-data class User(
-    val user_id: String,
-    val full_name: String?,
-    val role: String?
-)
-
-// 3. Dữ liệu phản hồi tổng quát từ Server
 data class LoginResponse(
-    val status: String,
-    val message: String,
-    val user: User?
+    val status: String,      // "success" hoặc "error"
+    val message: String,     // Thông báo lỗi hoặc thành công
+    val user: UserData? = null // Thông tin user (null nếu đăng nhập lỗi)
 )
 
-// Dữ liệu gửi đi khi Đăng ký
-data class RegisterRequest(
-    val phone: String,
-    val password: String,
+data class UserData(
+    val id: Int,
+    val email: String,
+    val username: String,
     val full_name: String
+)
+
+data class CheckEmailRequest(
+    val email: String
+)
+
+data class CheckEmailResponse(
+    val exists: Boolean
 )

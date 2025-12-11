@@ -1,5 +1,7 @@
 package com.example.karaokeapp.network
 
+import com.example.karaokeapp.models.CheckEmailRequest
+import com.example.karaokeapp.models.CheckEmailResponse
 import com.example.karaokeapp.models.LoginRequest
 import com.example.karaokeapp.models.LoginResponse
 import com.example.karaokeapp.models.RegisterRequest
@@ -16,11 +18,18 @@ interface ApiService {
 
     @POST("api/register")
     suspend fun register(@Body request: RegisterRequest): Response<LoginResponse>
+
+    @POST("api/sync-password")
+    suspend fun syncPassword(@Body request: LoginRequest): Response<LoginResponse>
+
+    @POST("api/check-email")
+    suspend fun checkEmail(@Body request: CheckEmailRequest): Response<CheckEmailResponse>
 }
 
 // 2. Tạo đối tượng kết nối
 object RetrofitClient {
-    private const val BASE_URL = "https://karaoke-server-paan.onrender.com/"
+//    private const val BASE_URL = "https://karaoke-server-paan.onrender.com/"
+    private const val BASE_URL = "http://10.0.2.2:3000/"
 
     val api: ApiService by lazy {
         Retrofit.Builder()
