@@ -54,7 +54,6 @@ android {
 
     buildTypes {
         getByName("debug") {
-            // 2. Gán chữ ký vừa tạo vào đây
             signingConfig = signingConfigs.getByName("debug")
         }
 
@@ -85,18 +84,11 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
-    implementation("com.squareup.retrofit2:retrofit:2.9.0")
-    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
-
-    // 2. Coil (Để load ảnh từ URL nhanh trong Compose)
-    implementation("io.coil-kt:coil-compose:2.5.0")
-
-    // 3. Navigation (Để chuyển màn hình)
-    implementation("androidx.navigation:navigation-compose:2.7.7")
-
-    // 4. Extended Icons (Để lấy thêm icon đẹp)
-    implementation("androidx.compose.material:material-icons-extended:1.6.0")
-
-    implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
-    implementation("com.google.firebase:firebase-auth")
+    implementation(libs.retrofit)
+    implementation(libs.converter.gson)
+    implementation(libs.coil.compose)
+    implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.compose.material.icons.extended)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth)
 }

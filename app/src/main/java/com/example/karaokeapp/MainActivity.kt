@@ -9,6 +9,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.karaokeapp.ui.screen.HomeScreen
 import com.example.karaokeapp.ui.screen.LoginScreen
 import com.example.karaokeapp.ui.screen.RegisterScreen
+import com.example.karaokeapp.ui.screen.ResetPasswordScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -27,6 +28,9 @@ class MainActivity : ComponentActivity() {
                         },
                         onNavigateToRegister = {
                             navController.navigate("register")
+                        },
+                        onNavigateToResetPassword = {
+                            navController.navigate("reset_password")
                         }
                     )
                 }
@@ -55,6 +59,16 @@ class MainActivity : ComponentActivity() {
                         }
                     )
                 }
+
+                //Màn hình reset password
+                composable("reset_password") {
+                    ResetPasswordScreen(
+                        onBackClick = {
+                            navController.popBackStack()
+                        }
+                    )
+                }
+
             }
         }
     }

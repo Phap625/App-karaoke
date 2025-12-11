@@ -1,6 +1,8 @@
 package com.example.karaokeapp.ui.screen
 
 import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -24,6 +26,7 @@ import com.google.firebase.FirebaseException
 import com.google.firebase.auth.PhoneAuthCredential
 import com.google.firebase.auth.PhoneAuthProvider
 import kotlinx.coroutines.launch
+import androidx.compose.ui.text.input.TextFieldValue
 import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -35,7 +38,7 @@ fun RegisterScreen(
     // Biến nhập liệu
     var phone by remember { mutableStateOf("") }
     var otpInput by remember { mutableStateOf("") }
-    var fullName by remember { mutableStateOf("") }
+    var fullName by remember { mutableStateOf(TextFieldValue("")) }
     var password by remember { mutableStateOf("") }
 
     // Trạng thái màn hình
@@ -47,7 +50,7 @@ fun RegisterScreen(
     val auth = FirebaseAuth.getInstance()
     var verificationId by remember { mutableStateOf("") }
     val context = LocalContext.current
-    val activity = LocalContext.current as Activity
+    val activity = context.findActivity()
     val scope = rememberCoroutineScope()
 
     val callbacks = remember {
@@ -99,8 +102,9 @@ fun RegisterScreen(
 
                 Button(
                     onClick = {
-                        if (verificationId.isNotEmpty() && otpInput.isNotEmpty()) {
+                        if (activity != null && verificationId.isNotEmpty() && otpInput.isNotEmpty()) {
                             val credential = PhoneAuthProvider.getCredential(verificationId, otpInput)
+
                             auth.signInWithCredential(credential)
                                 .addOnCompleteListener(activity) { task ->
                                     if (task.isSuccessful) {
@@ -129,7 +133,7 @@ fun RegisterScreen(
                             val options = PhoneAuthOptions.newBuilder(auth)
                                 .setPhoneNumber(formattedPhone)
                                 .setTimeout(60L, TimeUnit.SECONDS)
-                                .setActivity(activity)
+                                .setActivity(activity!!)
                                 .setCallbacks(callbacks)
                                 .build()
                             PhoneAuthProvider.verifyPhoneNumber(options)
@@ -151,7 +155,9 @@ fun RegisterScreen(
             Text("✅ SĐT đã xác minh: $phone", color = Color(0xFF00AA00), fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(12.dp))
 
-            OutlinedTextField(value = fullName, onValueChange = { fullName = it }, label = { Text("Họ và tên") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = fullName, onValueChange = { newValue ->
+                fullName = newValue
+            }, label = { Text("Họ và tên") }, modifier = Modifier.fillMaxWidth())
             Spacer(modifier = Modifier.height(12.dp))
 
             OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Tạo mật khẩu") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
@@ -161,7 +167,7 @@ fun RegisterScreen(
                 onClick = {
                     scope.launch {
                         try {
-                            val res = RetrofitClient.api.register(RegisterRequest(phone, password, fullName))
+                            val res = RetrofitClient.api.register(RegisterRequest(phone, password, fullName.text))
                             if (res.isSuccessful && res.body()?.status == "success") {
                                 Toast.makeText(context, "Tạo tài khoản thành công!", Toast.LENGTH_LONG).show()
                                 onRegisterSuccess()
@@ -169,7 +175,7 @@ fun RegisterScreen(
                             } else {
                                 Toast.makeText(context, "Lỗi: ${res.body()?.message}", Toast.LENGTH_SHORT).show()
                             }
-                        } catch (e: Exception) {
+                        } catch (_: Exception) {
                             Toast.makeText(context, "Lỗi kết nối Server!", Toast.LENGTH_SHORT).show()
                         }
                     }
@@ -188,4 +194,10 @@ fun RegisterScreen(
             Text("Quay lại Đăng nhập", color = Color.Gray)
         }
     }
+}
+
+fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
