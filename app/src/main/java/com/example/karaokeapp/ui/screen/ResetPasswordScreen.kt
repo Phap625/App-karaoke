@@ -31,11 +31,13 @@ fun ResetPasswordScreen(
 
     val context = LocalContext.current
     val auth = FirebaseAuth.getInstance()
-    // Cần scope để gọi API Retrofit
     val scope = rememberCoroutineScope()
 
     Column(
-        modifier = Modifier.fillMaxSize().background(Color.White).padding(24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White)
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -70,26 +72,39 @@ fun ResetPasswordScreen(
                     isLoading = true
                     scope.launch {
                         try {
+                            // Gọi API Backend kiểm tra Email có tồn tại trong hệ thống không
                             val response = RetrofitClient.api.checkEmail(CheckEmailRequest(email))
 
-                            if (response.isSuccessful && response.body()?.exists == true) {
-                                auth.sendPasswordResetEmail(email)
-                                    .addOnCompleteListener { task ->
-                                        isLoading = false
-                                        if (task.isSuccessful) {
-                                            isEmailSent = true
-                                            Toast.makeText(context, "Đã gửi link khôi phục!", Toast.LENGTH_LONG).show()
-                                        } else {
-                                            Toast.makeText(context, "Lỗi Firebase: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
+                            // Kiểm tra response dựa trên DataModels mới
+                            if (response.isSuccessful && response.body()?.status == "success") {
+                                val exists = response.body()?.exists == true
+
+                                if (exists) {
+                                    // 1. Email có tồn tại -> Gửi yêu cầu qua Firebase
+                                    auth.sendPasswordResetEmail(email)
+                                        .addOnCompleteListener { task ->
+                                            isLoading = false // Tắt loading dù thành công hay thất bại
+                                            if (task.isSuccessful) {
+                                                isEmailSent = true
+                                                Toast.makeText(context, "Đã gửi link khôi phục! Kiểm tra email.", Toast.LENGTH_LONG).show()
+                                            } else {
+                                                Toast.makeText(context, "Lỗi Firebase: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
+                                            }
                                         }
-                                    }
+                                } else {
+                                    // 2. Email không tồn tại trong Database
+                                    isLoading = false
+                                    Toast.makeText(context, "Email này chưa đăng ký tài khoản!", Toast.LENGTH_LONG).show()
+                                }
                             } else {
-                                // 2. Email không tồn tại trong Database
+                                // Lỗi API trả về (khác success)
                                 isLoading = false
-                                Toast.makeText(context, "Email này chưa đăng ký tài khoản!", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "Lỗi: ${response.body()?.message ?: "Server Error"}", Toast.LENGTH_SHORT).show()
                             }
                         } catch (e: Exception) {
+                            // Lỗi mạng
                             isLoading = false
+                            e.printStackTrace()
                             Toast.makeText(context, "Lỗi kết nối Server!", Toast.LENGTH_SHORT).show()
                         }
                     }
@@ -98,7 +113,9 @@ fun ResetPasswordScreen(
                     Toast.makeText(context, "Vui lòng nhập email!", Toast.LENGTH_SHORT).show()
                 }
             },
-            modifier = Modifier.fillMaxWidth().height(50.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
             colors = ButtonDefaults.buttonColors(containerColor = if (isEmailSent) Color.Gray else Color(0xFFFF00CC)),
             enabled = !isLoading && !isEmailSent
         ) {

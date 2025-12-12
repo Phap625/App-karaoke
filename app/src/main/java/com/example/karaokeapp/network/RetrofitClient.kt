@@ -13,23 +13,23 @@ import retrofit2.http.POST
 
 // 1. Định nghĩa các hàm gọi API
 interface ApiService {
-    @POST("api/login")
+    @POST("api/auth/login")
     suspend fun login(@Body request: LoginRequest): Response<LoginResponse>
 
-    @POST("api/register")
+    @POST("api/auth/register")
     suspend fun register(@Body request: RegisterRequest): Response<LoginResponse>
 
-    @POST("api/sync-password")
+    @POST("api/auth/sync-password")
     suspend fun syncPassword(@Body request: LoginRequest): Response<LoginResponse>
 
-    @POST("api/check-email")
+    @POST("api/auth/check-email")
     suspend fun checkEmail(@Body request: CheckEmailRequest): Response<CheckEmailResponse>
 }
 
 // 2. Tạo đối tượng kết nối
 object RetrofitClient {
-//    private const val BASE_URL = "https://karaoke-server-paan.onrender.com/"
-    private const val BASE_URL = "http://10.0.2.2:3000/"
+    private const val BASE_URL = "https://karaoke-server-paan.onrender.com/"
+//    private const val BASE_URL = "http://10.0.2.2:3000/"
 
     val api: ApiService by lazy {
         Retrofit.Builder()

@@ -10,6 +10,7 @@ import com.example.karaokeapp.ui.screen.HomeScreen
 import com.example.karaokeapp.ui.screen.LoginScreen
 import com.example.karaokeapp.ui.screen.RegisterScreen
 import com.example.karaokeapp.ui.screen.ResetPasswordScreen
+import com.example.karaokeapp.ui.screens.MeScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,6 +69,20 @@ class MainActivity : ComponentActivity() {
                         }
                     )
                 }
+
+                composable("me_screen") {
+                    MeScreen(
+                        onLogoutClick = {
+                            // 1. Xử lý logic xóa token/dữ liệu người dùng (nếu có)
+                            // Example: userPreferences.clear()
+
+                            navController.navigate("login") {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        }
+                    )
+                }
+
 
             }
         }

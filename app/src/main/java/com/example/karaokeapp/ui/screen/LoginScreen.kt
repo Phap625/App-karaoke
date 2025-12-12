@@ -1,9 +1,8 @@
 package com.example.karaokeapp.ui.screen
 
-import android.util.Log
 import android.widget.Toast
-import org.json.JSONObject
 import androidx.compose.foundation.BorderStroke
+import org.json.JSONObject
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,18 +39,19 @@ fun LoginScreen(
     val scope = rememberCoroutineScope()
     val auth = FirebaseAuth.getInstance()
 
-
+    // Hàm đồng bộ mật khẩu (Gọi khi Firebase OK mà Server báo sai)
     fun handleSyncPassword(realEmail: String, pass: String) {
         scope.launch {
             try {
+                Toast.makeText(context, "Đang đồng bộ mật khẩu mới...", Toast.LENGTH_SHORT).show()
                 val syncRes = RetrofitClient.api.syncPassword(LoginRequest(realEmail, pass))
 
                 if (syncRes.isSuccessful && syncRes.body()?.status == "success") {
-                    Toast.makeText(context, "Đã cập nhật mật khẩu mới!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Đồng bộ thành công! Đang đăng nhập...", Toast.LENGTH_SHORT).show()
+                    // Đồng bộ xong thì vào luôn
                     onLoginSuccess(true)
                 } else {
-                    val errorJson = syncRes.errorBody()?.string()
-                    Toast.makeText(context, "Lỗi đồng bộ dữ liệu", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Lỗi đồng bộ: ${syncRes.body()?.message}", Toast.LENGTH_SHORT).show()
                     isLoading = false
                 }
             } catch (e: Exception) {
@@ -105,71 +105,66 @@ fun LoginScreen(
 
         Button(
             onClick = {
-
                 if (identifier.isNotEmpty() && password.isNotEmpty()) {
                     scope.launch {
                         isLoading = true
                         try {
+                            // 1. Gọi API Login vào Backend trước
                             val response = RetrofitClient.api.login(LoginRequest(identifier, password))
 
                             if (response.isSuccessful && response.body()?.status == "success") {
-                                val realEmail = response.body()?.user?.email ?: ""
+                                // --- TRƯỜNG HỢP 1: Login Backend OK ---
+                                val userResponse = response.body()?.user
+                                val role = userResponse?.role ?: "user"
 
-                                if (realEmail.isNotEmpty()) {
-                                    auth.signInWithEmailAndPassword(realEmail, password)
-                                        .addOnCompleteListener { task ->
-                                            if (task.isSuccessful) {
-                                                val user = auth.currentUser
-                                                if (user?.isEmailVerified == true) {
-                                                    Toast.makeText(context, "Đăng nhập thành công!", Toast.LENGTH_SHORT).show()
-                                                    onLoginSuccess(true)
-                                                } else {
-                                                    auth.signOut()
-                                                    Toast.makeText(context, "Email chưa xác thực!", Toast.LENGTH_LONG).show()
-                                                    user?.sendEmailVerification()
-                                                }
-                                            } else {
-                                                auth.signOut()
-                                                Toast.makeText(context, "Mật khẩu này đã bị đổi! Vui lòng nhập mật khẩu mới.", Toast.LENGTH_LONG).show()
-                                            }
-                                            isLoading = false
-                                        }
-                                } else {
+                                if (role == "admin" || role == "own") {
+                                    Toast.makeText(context, "Vui lòng dùng App Admin!", Toast.LENGTH_LONG).show()
                                     isLoading = false
+                                    return@launch
                                 }
+
+                                // Login Backend OK -> Check tiếp Firebase cho chắc (Optional) hoặc cho vào luôn
+                                onLoginSuccess(true)
+
                             } else {
+                                // --- TRƯỜNG HỢP 2: Login Backend LỖI (Có thể do pass cũ) ---
                                 val errorJsonString = response.errorBody()?.string()
                                 val jsonObject = try { JSONObject(errorJsonString) } catch (e: Exception) { JSONObject() }
 
                                 val message = jsonObject.optString("message", "Lỗi")
+                                // Lấy email từ backend trả về (đã thêm ở Bước 1)
                                 val hintEmail = jsonObject.optString("email", "")
 
                                 if (message.contains("Sai mật khẩu", ignoreCase = true)) {
+                                    // Backend báo sai pass.
+                                    // Có thể user đã đổi pass trên Firebase (Reset pass) nhưng Backend chưa cập nhật.
 
-                                    val emailToTest = if (identifier.contains("@")) identifier else hintEmail
+                                    // Xác định email để check Firebase
+                                    val emailToCheck = if (identifier.contains("@")) identifier else hintEmail
 
-                                    if (emailToTest.isNotEmpty()) {
-
-                                        auth.signInWithEmailAndPassword(emailToTest, password)
+                                    if (emailToCheck.isNotEmpty()) {
+                                        // Thử đăng nhập Firebase với pass này
+                                        auth.signInWithEmailAndPassword(emailToCheck, password)
                                             .addOnCompleteListener { fbTask ->
                                                 if (fbTask.isSuccessful) {
-                                                    Toast.makeText(context, "Phát hiện mật khẩu mới, đang đồng bộ...", Toast.LENGTH_SHORT).show()
-                                                    handleSyncPassword(emailToTest, password)
+                                                    // Firebase chịu mật khẩu này -> Đây là mật khẩu mới!
+                                                    // -> Gọi đồng bộ ngay
+                                                    handleSyncPassword(emailToCheck, password)
                                                 } else {
+                                                    // Firebase cũng không chịu -> Sai pass thật
                                                     Toast.makeText(context, "Mật khẩu không đúng!", Toast.LENGTH_SHORT).show()
                                                     showForgotPassword = true
                                                     isLoading = false
                                                 }
                                             }
                                     } else {
+                                        // Không tìm thấy email để check
                                         Toast.makeText(context, "Mật khẩu không đúng!", Toast.LENGTH_SHORT).show()
-                                        showForgotPassword = true
                                         isLoading = false
                                     }
 
                                 } else if (message.contains("không tồn tại", ignoreCase = true)) {
                                     Toast.makeText(context, "Tài khoản không tồn tại", Toast.LENGTH_SHORT).show()
-                                    showForgotPassword = false
                                     isLoading = false
                                 } else {
                                     Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
@@ -197,7 +192,6 @@ fun LoginScreen(
         Spacer(modifier = Modifier.height(12.dp))
         OutlinedButton(
             onClick = {
-                Toast.makeText(context, "Đang vào chế độ Khách...", Toast.LENGTH_SHORT).show()
                 onLoginSuccess(false)
             },
             modifier = Modifier.fillMaxWidth().height(50.dp),

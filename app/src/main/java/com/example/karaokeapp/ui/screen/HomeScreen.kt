@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.example.karaokeapp.ui.screens.MeScreen
 
 @Composable
 fun HomeScreen(onLogout: () -> Unit) {
@@ -44,19 +45,32 @@ fun HomeScreen(onLogout: () -> Unit) {
             }
         }
     ) { innerPadding ->
+        // Nội dung chính thay đổi theo tab
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
-            contentAlignment = Alignment.Center
+                .padding(innerPadding)
         ) {
             when (selectedTab) {
-                0 -> Text("Nội dung Trang Chủ (List nhạc)")
-                1 -> Text("Nội dung Khoảnh Khắc")
-                2 -> Text("Màn hình Hát")
-                3 -> Text("Màn hình Chat")
-                4 -> Text("Thông tin cá nhân")
+                0 -> CenteredText("Nội dung Trang Chủ (List nhạc)")
+                1 -> CenteredText("Nội dung Khoảnh Khắc")
+                2 -> CenteredText("Màn hình Hát")
+                3 -> CenteredText("Màn hình Chat")
+
+                // --- THAY ĐỔI QUAN TRỌNG Ở ĐÂY ---
+                4 -> MeScreen(onLogoutClick = onLogout)
             }
         }
+    }
+}
+
+// Hàm phụ để hiển thị text ở giữa (cho các tab chưa code xong)
+@Composable
+fun CenteredText(text: String) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = text)
     }
 }

@@ -1,9 +1,7 @@
 package com.example.karaokeapp.ui.screen
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import android.widget.Toast
+import org.json.JSONObject // Import cái này để parse lỗi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -32,20 +30,16 @@ fun RegisterScreen(
     onRegisterSuccess: () -> Unit,
     onBackClick: () -> Unit
 ) {
-    // 1. Khai báo biến
     var email by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
-    var fullName by remember { mutableStateOf(TextFieldValue("")) } // Dùng TextFieldValue fix lỗi tiếng Việt
+    var fullName by remember { mutableStateOf(TextFieldValue("")) }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
 
-    // Firebase & Context
     val auth = FirebaseAuth.getInstance()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-
-    // Scroll state
     val scrollState = rememberScrollState()
 
     Column(
@@ -60,9 +54,7 @@ fun RegisterScreen(
         Text("ĐĂNG KÝ TÀI KHOẢN", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFF00CC))
         Spacer(modifier = Modifier.height(24.dp))
 
-        // --- FORM NHẬP LIỆU ---
-
-        // 1. Email
+        // ... (GIỮ NGUYÊN CÁC TEXT FIELD NHƯ CŨ) ...
         OutlinedTextField(
             value = email,
             onValueChange = { email = it },
@@ -73,7 +65,6 @@ fun RegisterScreen(
         )
         Spacer(modifier = Modifier.height(12.dp))
 
-        // 2. Tên đăng nhập
         OutlinedTextField(
             value = username,
             onValueChange = { username = it },
@@ -83,7 +74,6 @@ fun RegisterScreen(
         )
         Spacer(modifier = Modifier.height(12.dp))
 
-        // 3. Họ tên
         OutlinedTextField(
             value = fullName,
             onValueChange = { fullName = it },
@@ -93,7 +83,6 @@ fun RegisterScreen(
         )
         Spacer(modifier = Modifier.height(12.dp))
 
-        // 4. Mật khẩu
         OutlinedTextField(
             value = password,
             onValueChange = { password = it },
@@ -104,7 +93,6 @@ fun RegisterScreen(
         )
         Spacer(modifier = Modifier.height(12.dp))
 
-        // 5. Xác nhận mật khẩu
         OutlinedTextField(
             value = confirmPassword,
             onValueChange = { confirmPassword = it },
@@ -117,10 +105,9 @@ fun RegisterScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // --- NÚT ĐĂNG KÝ ---
+        // --- NÚT ĐĂNG KÝ (LOGIC CHÍNH ĐÃ SỬA) ---
         Button(
             onClick = {
-                // Validate cơ bản
                 if (password != confirmPassword) {
                     Toast.makeText(context, "Mật khẩu xác nhận không khớp!", Toast.LENGTH_SHORT).show()
                     return@Button
@@ -129,46 +116,59 @@ fun RegisterScreen(
                 if (email.isNotEmpty() && username.isNotEmpty() && password.isNotEmpty() && fullName.text.isNotEmpty()) {
                     isLoading = true
 
-                    // BƯỚC 1: Tạo User trên Firebase
+                    // BƯỚC 1: Tạo User Firebase
                     auth.createUserWithEmailAndPassword(email, password)
                         .addOnCompleteListener { task ->
                             if (task.isSuccessful) {
                                 val user = auth.currentUser
 
-                                // BƯỚC 2: Gửi Email xác thực
+                                // Gửi email xác thực (chạy ngầm, không cần chờ)
                                 user?.sendEmailVerification()
-                                    ?.addOnCompleteListener { verifyTask ->
-                                        if (verifyTask.isSuccessful) {
-                                            Toast.makeText(context, "Đã gửi link xác thực đến ${user.email}", Toast.LENGTH_LONG).show()
-                                        }
-                                    }
 
-                                // BƯỚC 3: Gọi API lưu vào Database (Supabase)
+                                // BƯỚC 2: Gọi Backend
                                 scope.launch {
                                     try {
+                                        // Lưu ý: Đảm bảo DataModels.kt dùng @SerializedName("full_name") cho fullName
                                         val request = RegisterRequest(email, username, password, fullName.text)
                                         val res = RetrofitClient.api.register(request)
 
                                         if (res.isSuccessful && res.body()?.status == "success") {
-                                            Toast.makeText(context, "Đăng ký thành công! Vui lòng kiểm tra Email.", Toast.LENGTH_LONG).show()
+                                            // THÀNH CÔNG
+                                            Toast.makeText(context, "Đăng ký thành công! Đã gửi mail xác thực.", Toast.LENGTH_LONG).show()
                                             onRegisterSuccess()
                                         } else {
-                                            // QUAN TRỌNG: Nếu Server lỗi (VD trùng username), XÓA user trên Firebase ngay
-                                            // để người dùng không bị kẹt (có Firebase mà không có Supabase)
+                                            // THẤT BẠI TỪ SERVER (Backend trả về lỗi)
+                                            // Xử lý lỗi null: Đọc từ errorBody
+                                            val errorJsonString = res.errorBody()?.string()
+                                            val message = try {
+                                                JSONObject(errorJsonString).getString("message")
+                                            } catch (e: Exception) {
+                                                "Lỗi máy chủ: ${res.code()}"
+                                            }
+
+                                            // Xóa user Firebase để rollback
                                             user?.delete()
-                                            Toast.makeText(context, "Lỗi: ${res.body()?.message}", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                                         }
                                     } catch (e: Exception) {
-                                        // Lỗi mạng -> Cũng xóa Firebase đi làm lại
+                                        // LỖI MẠNG / CRASH APP
                                         user?.delete()
-                                        Toast.makeText(context, "Lỗi kết nối Server!", Toast.LENGTH_SHORT).show()
+                                        e.printStackTrace()
+                                        Toast.makeText(context, "Lỗi kết nối: ${e.message}", Toast.LENGTH_SHORT).show()
                                     } finally {
                                         isLoading = false
                                     }
                                 }
                             } else {
-                                // Lỗi Firebase (Email đã tồn tại, pass yếu...)
-                                Toast.makeText(context, "Lỗi: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
+                                // Lỗi từ Firebase (Email trùng, pass yếu...)
+                                val errorMsg = task.exception?.message ?: "Lỗi đăng ký Firebase"
+                                // Dịch một số lỗi phổ biến
+                                val finalMsg = when {
+                                    errorMsg.contains("email address is already in use") -> "Email này đã được đăng ký!"
+                                    errorMsg.contains("Password should be at least") -> "Mật khẩu phải từ 6 ký tự!"
+                                    else -> errorMsg
+                                }
+                                Toast.makeText(context, finalMsg, Toast.LENGTH_LONG).show()
                                 isLoading = false
                             }
                         }
@@ -176,9 +176,7 @@ fun RegisterScreen(
                     Toast.makeText(context, "Vui lòng nhập đầy đủ thông tin", Toast.LENGTH_SHORT).show()
                 }
             },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp),
+            modifier = Modifier.fillMaxWidth().height(50.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF00CC)),
             enabled = !isLoading
         ) {
