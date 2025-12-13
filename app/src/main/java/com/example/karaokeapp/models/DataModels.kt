@@ -42,5 +42,10 @@ data class UserData(
 data class CheckEmailResponse(
     val status: String,
     val message: String,
-    val exists: Boolean
+    val exists: Boolean,
+    val role: String? = null
+)
+
+data class LogoutRequest(
+    @SerializedName("refresh_token") val refreshToken: String
 )

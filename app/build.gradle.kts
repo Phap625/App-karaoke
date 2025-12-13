@@ -91,4 +91,6 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
+
+    implementation("androidx.security:security-crypto:1.0.0")
 }

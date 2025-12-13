@@ -75,15 +75,21 @@ fun ResetPasswordScreen(
                             // Gọi API Backend kiểm tra Email có tồn tại trong hệ thống không
                             val response = RetrofitClient.api.checkEmail(CheckEmailRequest(email))
 
-                            // Kiểm tra response dựa trên DataModels mới
+                            // Kiểm tra response
                             if (response.isSuccessful && response.body()?.status == "success") {
                                 val exists = response.body()?.exists == true
+                                val role = response.body()?.role ?: "user";
 
                                 if (exists) {
-                                    // 1. Email có tồn tại -> Gửi yêu cầu qua Firebase
+                                    if (role == "admin" || role == "own") {
+                                        isLoading = false
+                                        Toast.makeText(context, "Tài khoản Quản trị không được reset ở đây! Vui lòng vào trang Admin.", Toast.LENGTH_LONG).show()
+                                        return@launch // Dừng ngay, không gửi email
+                                    }
+                                    // Gửi yêu cầu qua Firebase
                                     auth.sendPasswordResetEmail(email)
                                         .addOnCompleteListener { task ->
-                                            isLoading = false // Tắt loading dù thành công hay thất bại
+                                            isLoading = false
                                             if (task.isSuccessful) {
                                                 isEmailSent = true
                                                 Toast.makeText(context, "Đã gửi link khôi phục! Kiểm tra email.", Toast.LENGTH_LONG).show()

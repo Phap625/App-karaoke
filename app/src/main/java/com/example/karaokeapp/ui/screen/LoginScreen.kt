@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.karaokeapp.models.LoginRequest
 import com.example.karaokeapp.network.RetrofitClient
+import com.example.karaokeapp.utils.TokenManager
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
 
@@ -35,11 +36,13 @@ fun LoginScreen(
     var isLoading by remember { mutableStateOf(false) }
     var showForgotPassword by remember { mutableStateOf(false) }
 
+    // --- KHAI BÁO BIẾN ---
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val auth = FirebaseAuth.getInstance()
+    val tokenManager = remember { TokenManager(context) }
 
-    // Hàm đồng bộ mật khẩu (Gọi khi Firebase OK mà Server báo sai)
+    // Hàm đồng bộ mật khẩu
     fun handleSyncPassword(realEmail: String, pass: String) {
         scope.launch {
             try {
@@ -47,8 +50,16 @@ fun LoginScreen(
                 val syncRes = RetrofitClient.api.syncPassword(LoginRequest(realEmail, pass))
 
                 if (syncRes.isSuccessful && syncRes.body()?.status == "success") {
+                    val body = syncRes.body()
+                    val accessToken = body?.accessToken ?: ""
+                    val refreshToken = body?.refreshToken ?: ""
+                    val role = body?.user?.role ?: "user"
+
+                    if (accessToken.isNotEmpty() && refreshToken.isNotEmpty()) {
+                        tokenManager.saveAuthInfo(accessToken, refreshToken, role)
+                    }
+
                     Toast.makeText(context, "Đồng bộ thành công! Đang đăng nhập...", Toast.LENGTH_SHORT).show()
-                    // Đồng bộ xong thì vào luôn
                     onLoginSuccess(true)
                 } else {
                     Toast.makeText(context, "Lỗi đồng bộ: ${syncRes.body()?.message}", Toast.LENGTH_SHORT).show()
@@ -109,13 +120,17 @@ fun LoginScreen(
                     scope.launch {
                         isLoading = true
                         try {
-                            // 1. Gọi API Login vào Backend trước
+                            // 1. Gọi Backend
                             val response = RetrofitClient.api.login(LoginRequest(identifier, password))
 
                             if (response.isSuccessful && response.body()?.status == "success") {
-                                // --- TRƯỜNG HỢP 1: Login Backend OK ---
-                                val userResponse = response.body()?.user
+                                val body = response.body()
+                                val userResponse = body?.user
                                 val role = userResponse?.role ?: "user"
+                                val realEmail = userResponse?.email ?: ""
+
+                                val accessToken = body?.accessToken ?: ""
+                                val refreshToken = body?.refreshToken ?: ""
 
                                 if (role == "admin" || role == "own") {
                                     Toast.makeText(context, "Vui lòng dùng App Admin!", Toast.LENGTH_LONG).show()
@@ -123,46 +138,85 @@ fun LoginScreen(
                                     return@launch
                                 }
 
-                                // Login Backend OK -> Check tiếp Firebase cho chắc (Optional) hoặc cho vào luôn
-                                onLoginSuccess(true)
+                                if (realEmail.isNotEmpty()) {
+                                    auth.signInWithEmailAndPassword(realEmail, password)
+                                        .addOnCompleteListener { task ->
+                                            if (task.isSuccessful) {
+                                                val user = auth.currentUser
+                                                if (user?.isEmailVerified == true) {
+
+                                                    // ===============================================
+                                                    // [BẮT ĐẦU] CHÈN LOGIC DỌN DẸP GUEST TẠI ĐÂY
+                                                    // ===============================================
+
+                                                    // Lấy thông tin hiện tại (đang là Guest) TRƯỚC khi lưu cái mới
+                                                    val currentRole = tokenManager.getUserRole()
+                                                    val currentToken = tokenManager.getAccessToken()
+
+                                                    if (currentRole == "guest" && !currentToken.isNullOrEmpty()) {
+                                                        // Chạy scope mới để không ảnh hưởng luồng chính
+                                                        scope.launch {
+                                                            try {
+                                                                // Gọi API xóa Guest cũ (Dùng token cũ để xác thực)
+                                                                // Lưu ý: Đảm bảo RetrofitClient đã có hàm deleteGuestAccount
+                                                                RetrofitClient.api.deleteGuestAccount("Bearer $currentToken")
+                                                                android.util.Log.d("CLEANUP", "Đã xóa Guest cũ thành công")
+                                                            } catch (e: Exception) {
+                                                                e.printStackTrace()
+                                                            }
+                                                        }
+                                                    }
+                                                    // ===============================================
+                                                    // [KẾT THÚC]
+                                                    // ===============================================
+
+                                                    // === SAU ĐÓ MỚI LƯU TOKEN USER MỚI ===
+                                                    if (accessToken.isNotEmpty() && refreshToken.isNotEmpty()) {
+                                                        tokenManager.saveAuthInfo(accessToken, refreshToken, role)
+                                                    }
+
+                                                    Toast.makeText(context, "Đăng nhập thành công!", Toast.LENGTH_SHORT).show()
+                                                    onLoginSuccess(true)
+                                                } else {
+                                                    auth.signOut()
+                                                    Toast.makeText(context, "Email chưa xác thực!", Toast.LENGTH_LONG).show()
+                                                    user?.sendEmailVerification()
+                                                }
+                                                isLoading = false
+                                            } else {
+                                                auth.signOut()
+                                                Toast.makeText(context, "Mật khẩu cũ không còn hiệu lực! Vui lòng nhập mật khẩu mới.", Toast.LENGTH_LONG).show()
+                                                isLoading = false
+                                            }
+                                        }
+                                } else {
+                                    isLoading = false
+                                }
 
                             } else {
-                                // --- TRƯỜNG HỢP 2: Login Backend LỖI (Có thể do pass cũ) ---
                                 val errorJsonString = response.errorBody()?.string()
                                 val jsonObject = try { JSONObject(errorJsonString) } catch (e: Exception) { JSONObject() }
-
                                 val message = jsonObject.optString("message", "Lỗi")
-                                // Lấy email từ backend trả về (đã thêm ở Bước 1)
                                 val hintEmail = jsonObject.optString("email", "")
 
                                 if (message.contains("Sai mật khẩu", ignoreCase = true)) {
-                                    // Backend báo sai pass.
-                                    // Có thể user đã đổi pass trên Firebase (Reset pass) nhưng Backend chưa cập nhật.
-
-                                    // Xác định email để check Firebase
                                     val emailToCheck = if (identifier.contains("@")) identifier else hintEmail
 
                                     if (emailToCheck.isNotEmpty()) {
-                                        // Thử đăng nhập Firebase với pass này
                                         auth.signInWithEmailAndPassword(emailToCheck, password)
                                             .addOnCompleteListener { fbTask ->
                                                 if (fbTask.isSuccessful) {
-                                                    // Firebase chịu mật khẩu này -> Đây là mật khẩu mới!
-                                                    // -> Gọi đồng bộ ngay
                                                     handleSyncPassword(emailToCheck, password)
                                                 } else {
-                                                    // Firebase cũng không chịu -> Sai pass thật
                                                     Toast.makeText(context, "Mật khẩu không đúng!", Toast.LENGTH_SHORT).show()
                                                     showForgotPassword = true
                                                     isLoading = false
                                                 }
                                             }
                                     } else {
-                                        // Không tìm thấy email để check
                                         Toast.makeText(context, "Mật khẩu không đúng!", Toast.LENGTH_SHORT).show()
                                         isLoading = false
                                     }
-
                                 } else if (message.contains("không tồn tại", ignoreCase = true)) {
                                     Toast.makeText(context, "Tài khoản không tồn tại", Toast.LENGTH_SHORT).show()
                                     isLoading = false
@@ -172,7 +226,7 @@ fun LoginScreen(
                                 }
                             }
                         } catch (e: Exception) {
-                            Toast.makeText(context, "Không thể kết nối Server!", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "Lỗi kết nối Server!", Toast.LENGTH_LONG).show()
                             e.printStackTrace()
                             isLoading = false
                         }
@@ -192,14 +246,54 @@ fun LoginScreen(
         Spacer(modifier = Modifier.height(12.dp))
         OutlinedButton(
             onClick = {
-                onLoginSuccess(false)
+                scope.launch {
+                    val savedToken = tokenManager.getAccessToken()
+                    val savedRole = tokenManager.getUserRole()
+
+                    if (!savedToken.isNullOrEmpty() && savedRole == "guest") {
+                        Toast.makeText(context, "Dùng lại tài khoản khách cũ", Toast.LENGTH_SHORT).show()
+                        onLoginSuccess(true)
+                        return@launch
+                    }
+
+                    isLoading = true
+                    try {
+                        Toast.makeText(context, "Đang tạo tài khoản khách mới...", Toast.LENGTH_SHORT).show()
+                        val response = RetrofitClient.api.guestLogin()
+
+                        if (response.isSuccessful && response.body()?.status == "success") {
+                            val body = response.body()
+                            val accessToken = body?.accessToken ?: ""
+                            val refreshToken = body?.refreshToken ?: ""
+                            val role = "guest"
+
+                            if (accessToken.isNotEmpty() && refreshToken.isNotEmpty()) {
+                                tokenManager.saveAuthInfo(accessToken, refreshToken, role)
+                            }
+
+                            Toast.makeText(context, "Xin chào Khách mới!", Toast.LENGTH_SHORT).show()
+                            onLoginSuccess(true)
+                        } else {
+                            Toast.makeText(context, "Lỗi: ${response.body()?.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Lỗi kết nối!", Toast.LENGTH_SHORT).show()
+                        e.printStackTrace()
+                    } finally {
+                        isLoading = false
+                    }
+                }
             },
             modifier = Modifier.fillMaxWidth().height(50.dp),
             border = BorderStroke(1.dp, Color(0xFFFF00CC)),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF00CC)),
             enabled = !isLoading
         ) {
-            Text("HÁT THỬ NGAY (KHÔNG CẦN TÀI KHOẢN)", fontWeight = FontWeight.Bold)
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color(0xFFFF00CC))
+            } else {
+                Text("HÁT THỬ NGAY (KHÔNG CẦN TÀI KHOẢN)", fontWeight = FontWeight.Bold)
+            }
         }
         Spacer(modifier = Modifier.height(24.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
