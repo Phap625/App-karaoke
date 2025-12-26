@@ -13,9 +13,9 @@ class ApiService {
 
   final SupabaseClient _supabase = Supabase.instance.client;
 
-  // static const String _baseUrl = "http://10.0.2.2:3000";
+  static const String _baseUrl = "http://10.0.2.2:3000";
 
-  final String _baseUrl = 'https://karaoke-server-paan.onrender.com';
+  // final String _baseUrl = 'https://karaoke-server-paan.onrender.com';
 
 
   ApiService._internal() {

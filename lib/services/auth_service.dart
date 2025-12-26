@@ -9,9 +9,9 @@ class AuthService {
   final SupabaseClient _client = Supabase.instance.client;
 
   // Nếu chạy máy ảo Android thì dùng 10.0.2.2, máy thật thì dùng IP LAN
-  // final String _baseUrl = 'http://10.0.2.2:3000';
+  final String _baseUrl = 'http://10.0.2.2:3000';
 
-  final String _baseUrl = 'https://karaoke-server-paan.onrender.com';
+  // final String _baseUrl = 'https://karaoke-server-paan.onrender.com';
 
   // ==========================================================
   // PHẦN 1: QUẢN LÝ GUEST
@@ -280,7 +280,11 @@ class AuthService {
   // ==========================================================
 
   Future<void> logout() async {
-    await _client.auth.signOut();
+    try {
+      await _client.auth.signOut();
+    } catch (e) {
+      print("⚠️ Logout Warning (Có thể do user đã bị khóa trước đó): $e");
+    }
   }
 
   User? get currentUser => _client.auth.currentUser;
