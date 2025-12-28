@@ -65,62 +65,71 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     const primaryColor = Color(0xFFFF00CC);
 
-    return Scaffold(
-      // [THAY ĐỔI 1] Bỏ màu nền trắng cũ
-      // backgroundColor: Colors.white,
-      body: Container(
-        // [THAY ĐỔI 2] Thêm Container bọc ngoài để làm Background Gradient
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            // [THAY ĐỔI 3] Sử dụng bảng màu bạn cung cấp
-            colors: [
-              Color(0xFF0A043C),
-              Color(0xFF4B0082),
-              Color(0xFFDF16BA),
-              Color(0xFF2B125A),
-              Color(0xFF000000),
-            ],
-            stops: [0.0, 0.28, 0.46, 0.76, 1.0],
-          ),
-        ),
-        child: SafeArea(
+    // Bọc Theme màu trắng để đảm bảo chuyển cảnh không bị nháy đen/tối
+    return Theme(
+      data: Theme.of(context).copyWith(
+        scaffoldBackgroundColor: Colors.white,
+        canvasColor: Colors.white,
+      ),
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24.0),
+              padding: const EdgeInsets.all(25.0),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(36.0),
+                  Container(
+                    width: 100,
+                    height: 100,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(36),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.2),
+                          blurRadius: 15,
+                          offset: const Offset(0, 5),
+                        )
+                      ],
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color(0xFF1A0E7E),
+                          Color(0xE7500488),
+                          Color(0xFFB51196),
+                          Color(0xFF2D145C),
+                          Color(0xFF0A0527),
+                        ],
+                        stops: [0.0, 0.28, 0.46, 0.76, 1.0],
+                      ),
+                    ),
                     child: Image.asset(
                       'assets/logo.png',
-                      width: 100,
-                      height: 100,
-                      fit: BoxFit.cover,
+                      fit: BoxFit.contain,
                     ),
                   ),
-                  const SizedBox(height: 36),
 
-                  // [THAY ĐỔI 4] Style lại TextField cho nổi bật trên nền tối
+                  const SizedBox(height: 40),
+
+                  // --- INPUT FIELDS ---
                   TextField(
                     controller: _identifierController,
                     enabled: !_isLoading,
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
-                    style: const TextStyle(color: Colors.black87), // Chữ nhập vào màu đen
+                    style: const TextStyle(color: Colors.black87),
                     decoration: InputDecoration(
                       labelText: "Email hoặc Tên đăng nhập",
-                      labelStyle: TextStyle(color: Colors.grey[700]),
-                      prefixIcon: Icon(Icons.person_outline, color: Colors.grey[700]),
-                      filled: true,                 // Tô màu nền cho ô nhập
-                      fillColor: Colors.white.withValues(alpha: 0.8),
+                      labelStyle: TextStyle(color: Colors.grey[600]),
+                      prefixIcon: Icon(Icons.person_outline, color: Colors.grey[600]),
+                      filled: true,
+                      fillColor: Colors.grey[100],
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none, // Bỏ viền đen mặc định cho đẹp
+                        borderSide: BorderSide.none,
                       ),
                       floatingLabelBehavior: FloatingLabelBehavior.auto,
                     ),
@@ -136,10 +145,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     style: const TextStyle(color: Colors.black87),
                     decoration: InputDecoration(
                       labelText: "Mật khẩu",
-                      labelStyle: TextStyle(color: Colors.grey[700]),
-                      prefixIcon: Icon(Icons.lock_outline, color: Colors.grey[700]),
+                      labelStyle: TextStyle(color: Colors.grey[600]),
+                      prefixIcon: Icon(Icons.lock_outline, color: Colors.grey[600]),
                       filled: true,
-                      fillColor: Colors.white.withValues(alpha: 0.8),
+                      fillColor: Colors.grey[100],
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide.none,
@@ -147,7 +156,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       suffixIcon: IconButton(
                         icon: Icon(
                           _obscurePassword ? Icons.visibility : Icons.visibility_off,
-                          color: Colors.grey[700],
+                          color: Colors.grey[600],
                         ),
                         onPressed: () =>
                             setState(() => _obscurePassword = !_obscurePassword),
@@ -161,11 +170,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       onPressed: () {
                         Navigator.pushNamed(context, '/reset_password');
                       },
-                      child: const Text("Quên mật khẩu?",
-                          style: TextStyle(color: Colors.white70)),
+                      child: Text("Quên mật khẩu?",
+                          style: TextStyle(color: Colors.grey[700], fontWeight: FontWeight.w600)),
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
 
                   SizedBox(
                     width: double.infinity,
@@ -174,7 +183,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       onPressed: _isLoading ? null : _handleLogin,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primaryColor,
-                        elevation: 5,
+                        elevation: 3,
+                        shadowColor: primaryColor.withValues(alpha: 0.4),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12)),
                       ),
@@ -191,7 +201,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
 
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
+
+                  // Nút Guest đổi sang màu tối hoặc màu Primary cho dễ nhìn
                   TextButton(
                     onPressed: () async {
                       try {
@@ -202,13 +214,14 @@ class _LoginScreenState extends State<LoginScreen> {
                         _showToast("Lỗi đăng nhập khách");
                       }
                     },
-                    child: const Text("Bỏ qua đăng nhập", style: TextStyle(color: Colors.white)),
+                    child: const Text("Bỏ qua đăng nhập", style: TextStyle(color: Colors.black54)),
                   ),
+
                   const SizedBox(height: 24),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Text("Chưa có tài khoản? ", style: TextStyle(color: Colors.white70)),
+                      const Text("Chưa có tài khoản? ", style: TextStyle(color: Colors.black54)),
                       TextButton(
                         onPressed: () {
                           Navigator.pushNamed(context, '/register');

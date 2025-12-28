@@ -55,9 +55,21 @@ class SongService {
     if (error is DioException) {
       if (error.response?.data != null && error.response?.data is Map) {
         final data = error.response?.data as Map;
+
+        // Bắt lỗi tài khoản bị khóa
+        if (data['status'] == 'locked') {
+          return Exception(data['message'] ?? "Tài khoản đang bị tạm khóa.");
+        }
+
         if (data['message'] != null) return Exception(data['message']);
         if (data['error'] != null) return Exception(data['error']);
       }
+
+      // Xử lý các lỗi HTTP Code cơ bản
+      if (error.response?.statusCode == 401) {
+        return Exception("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
+      }
+
       return Exception(error.message ?? "Lỗi kết nối server");
     }
     return Exception("Lỗi không xác định: $error");

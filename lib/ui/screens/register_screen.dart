@@ -44,7 +44,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  // --- BƯỚC 1: GỬI OTP ---
+  // --- LOGIC ---
   Future<void> _sendOtp() async {
     final email = _emailController.text.trim();
     if (email.isEmpty || !email.contains('@')) {
@@ -70,7 +70,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  // --- BƯỚC 2: XÁC THỰC OTP ---
   Future<void> _verifyOtp() async {
     final otp = _otpController.text.trim();
 
@@ -91,7 +90,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  // --- BƯỚC 3: HOÀN TẤT ĐĂNG KÝ ---
   Future<void> _completeRegister() async {
     final username = _usernameController.text.trim();
     final fullName = _fullNameController.text.trim();
@@ -131,44 +129,88 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  // --- HÀM HELPER STYLE INPUT ---
+  InputDecoration _inputDecoration(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: TextStyle(color: Colors.grey[600]),
+      prefixIcon: Icon(icon, color: Colors.grey[600]),
+      filled: true,
+      fillColor: Colors.grey[100],
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+      floatingLabelBehavior: FloatingLabelBehavior.auto,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     const primaryColor = Color(0xFFFF00CC);
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        title: const Text("Đăng ký tài khoản", style: TextStyle(color: Colors.black)),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: _currentStep > 0 ? () => setState(() => _currentStep--) : widget.onBackClick,
-        ),
+    return Theme(
+      data: Theme.of(context).copyWith(
+        scaffoldBackgroundColor: Colors.white,
+        canvasColor: Colors.white,
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
           child: Column(
             children: [
-              LinearProgressIndicator(
-                value: (_currentStep + 1) / 3,
-                color: primaryColor,
-                backgroundColor: Colors.grey[200],
-                minHeight: 6,
-              ),
-              const SizedBox(height: 32),
-
-              if (_currentStep == 0) _buildStepEmail(),
-              if (_currentStep == 1) _buildStepOTP(),
-              if (_currentStep == 2) _buildStepForm(),
-
-              const SizedBox(height: 16),
-              if (_currentStep == 0)
-                TextButton(
-                  onPressed: widget.onBackClick,
-                  child: const Text("Đã có tài khoản? Đăng nhập", style: TextStyle(color: Colors.grey)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.black),
+                      onPressed: _currentStep > 0 ? () => setState(() => _currentStep--) : widget.onBackClick,
+                    ),
+                    const Expanded(
+                      child: Text(
+                        "Đăng ký tài khoản",
+                        style: TextStyle(color: Colors.black, fontSize: 20, fontWeight: FontWeight.bold),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(width: 48),
+                  ],
                 ),
+              ),
+
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    children: [
+                      // Progress Bar
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: (_currentStep + 1) / 3,
+                          color: primaryColor,
+                          backgroundColor: Colors.grey[200],
+                          minHeight: 6,
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+
+                      if (_currentStep == 0) _buildStepEmail(),
+                      if (_currentStep == 1) _buildStepOTP(),
+                      if (_currentStep == 2) _buildStepForm(),
+
+                      const SizedBox(height: 16),
+                      if (_currentStep == 0)
+                        TextButton(
+                          onPressed: widget.onBackClick,
+                          child: Text("Đã có tài khoản? Đăng nhập",
+                              style: TextStyle(color: Colors.grey[700])),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -178,18 +220,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   // Widget Bước 1: Email
   Widget _buildStepEmail() {
+    const primaryColor = Color(0xFFFF00CC);
     return Column(
       children: [
-        const Icon(Icons.email_outlined, size: 80, color: Color(0xFFFF00CC)),
+        const Icon(Icons.email_outlined, size: 80, color: primaryColor),
         const SizedBox(height: 16),
-        const Text("XÁC THỰC EMAIL", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+        const Text("XÁC THỰC EMAIL",
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.black)),
         const SizedBox(height: 8),
-        const Text("Chúng tôi sẽ gửi mã OTP để xác minh email của bạn", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+        Text("Chúng tôi sẽ gửi mã OTP để xác minh email của bạn",
+            textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[600])),
         const SizedBox(height: 32),
         TextField(
           controller: _emailController,
           keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(labelText: "Nhập Email đăng ký", border: OutlineInputBorder(), prefixIcon: Icon(Icons.mail)),
+          style: const TextStyle(color: Colors.black87),
+          decoration: _inputDecoration("Nhập Email đăng ký", Icons.mail),
         ),
         const SizedBox(height: 24),
         _buildButton("GỬI MÃ OTP", _sendOtp),
@@ -199,34 +245,39 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   // Widget Bước 2: OTP
   Widget _buildStepOTP() {
+    const primaryColor = Color(0xFFFF00CC);
     return Column(
       children: [
-        const Icon(Icons.mark_email_read_outlined, size: 80, color: Color(0xFFFF00CC)),
+        const Icon(Icons.mark_email_read_outlined, size: 80, color: primaryColor),
         const SizedBox(height: 16),
-        const Text("NHẬP MÃ OTP", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+        const Text("NHẬP MÃ OTP",
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.black)),
         const SizedBox(height: 8),
-        Text("Mã xác thực đã được gửi tới:\n${_emailController.text}", textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey)),
+        Text("Mã xác thực đã được gửi tới:\n${_emailController.text}",
+            textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[600])),
         const SizedBox(height: 32),
 
         TextField(
           controller: _otpController,
           keyboardType: TextInputType.number,
           textAlign: TextAlign.center,
-
           maxLength: 8,
-
           inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-
-          style: const TextStyle(fontSize: 24, letterSpacing: 8, fontWeight: FontWeight.bold),
-          decoration: const InputDecoration(
-              hintText: "OTP Code",
-              counterText: "",
-              border: OutlineInputBorder()
+          style: const TextStyle(fontSize: 24, letterSpacing: 8, fontWeight: FontWeight.bold, color: Colors.black87),
+          decoration: InputDecoration(
+            hintText: "OTP Code",
+            counterText: "",
+            filled: true,
+            fillColor: Colors.grey[100],
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
           ),
         ),
         const SizedBox(height: 24),
         _buildButton("XÁC NHẬN MÃ", _verifyOtp),
-        TextButton(onPressed: () => setState(() => _currentStep = 0), child: const Text("Sửa lại Email", style: TextStyle(color: Colors.blue))),
+        TextButton(
+            onPressed: () => setState(() => _currentStep = 0),
+            child: const Text("Sửa lại Email", style: TextStyle(color: Color(0xFFFF00CC)))
+        ),
       ],
     );
   }
@@ -236,16 +287,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Center(child: Text("THÔNG TIN TÀI KHOẢN", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20))),
+        const Center(child: Text("THÔNG TIN TÀI KHOẢN",
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.black))),
         const SizedBox(height: 24),
 
-        TextField(controller: _usernameController, decoration: const InputDecoration(labelText: "Tên đăng nhập", prefixIcon: Icon(Icons.person), border: OutlineInputBorder())),
+        TextField(
+            controller: _usernameController,
+            style: const TextStyle(color: Colors.black87),
+            decoration: _inputDecoration("Tên đăng nhập", Icons.person)
+        ),
         const SizedBox(height: 16),
 
-        TextField(controller: _fullNameController, decoration: const InputDecoration(labelText: "Họ và tên", prefixIcon: Icon(Icons.badge), border: OutlineInputBorder())),
+        TextField(
+            controller: _fullNameController,
+            style: const TextStyle(color: Colors.black87),
+            decoration: _inputDecoration("Họ và tên", Icons.badge)
+        ),
         const SizedBox(height: 16),
 
-        const Text("Giới tính:", style: TextStyle(fontWeight: FontWeight.w600)),
+        const Text("Giới tính:", style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black)),
         Row(
           mainAxisAlignment: MainAxisAlignment.start,
           children: [
@@ -258,11 +318,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
         DropdownButtonFormField<String>(
           value: _selectedRegion,
-          decoration: const InputDecoration(
-            labelText: "Tỉnh / Thành phố",
-            prefixIcon: Icon(Icons.location_on),
-            border: OutlineInputBorder(),
-          ),
+          style: const TextStyle(color: Colors.black87, fontSize: 16),
+          dropdownColor: Colors.white,
+          decoration: _inputDecoration("Tỉnh / Thành phố", Icons.location_on),
           items: _provinces.map((province) => DropdownMenuItem(
             value: province,
             child: Text(province),
@@ -274,12 +332,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         TextField(
             controller: _passwordController,
             obscureText: _obscurePassword,
-            decoration: InputDecoration(
-              labelText: "Mật khẩu",
-              prefixIcon: const Icon(Icons.lock),
-              border: const OutlineInputBorder(),
+            style: const TextStyle(color: Colors.black87),
+            decoration: _inputDecoration("Mật khẩu", Icons.lock).copyWith(
               suffixIcon: IconButton(
-                icon: Icon(_obscurePassword ? Icons.visibility : Icons.visibility_off),
+                icon: Icon(_obscurePassword ? Icons.visibility : Icons.visibility_off, color: Colors.grey[600]),
                 onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
               ),
             )
@@ -289,7 +345,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         TextField(
             controller: _confirmPasswordController,
             obscureText: _obscurePassword,
-            decoration: const InputDecoration(labelText: "Xác nhận mật khẩu", prefixIcon: Icon(Icons.lock_reset), border: OutlineInputBorder())
+            style: const TextStyle(color: Colors.black87),
+            decoration: _inputDecoration("Xác nhận mật khẩu", Icons.lock_reset)
         ),
         const SizedBox(height: 32),
 
@@ -301,13 +358,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _buildGenderRadio(String val) {
     return Row(
       children: [
-        Radio<String>(
-          value: val,
-          groupValue: _selectedGender,
-          activeColor: const Color(0xFFFF00CC),
-          onChanged: (value) => setState(() => _selectedGender = value!),
+        Theme(
+          data: Theme.of(context).copyWith(
+            unselectedWidgetColor: Colors.grey[600],
+          ),
+          child: Radio<String>(
+            value: val,
+            groupValue: _selectedGender,
+            activeColor: const Color(0xFFFF00CC),
+            onChanged: (value) => setState(() => _selectedGender = value!),
+          ),
         ),
-        Text(val),
+        Text(val, style: const TextStyle(color: Colors.black)),
         const SizedBox(width: 10),
       ],
     );
@@ -321,6 +383,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFFFF00CC),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          elevation: 3,
         ),
         child: _isLoading
             ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
