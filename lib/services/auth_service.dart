@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../utils/token_manager.dart';
@@ -17,61 +18,107 @@ class AuthService {
   // ==========================================================
 
   Future<void> loginAsGuest() async {
-    if (isGuest) {
-      print("⚠️ Đang là Guest, bỏ qua tạo session mới.");
-      return;
-    }
-
+    // 1. Dọn dẹp session cũ nếu có
     if (isLoggedIn && !isGuest) {
       await logout();
     }
 
+    // Nếu trong RAM đang có session guest còn hạn -> Dùng luôn
+    final currentSession = _client.auth.currentSession;
+    if (currentSession != null && !currentSession.isExpired && currentSession.user.isAnonymous) {
+      // Kiểm tra xem user này còn sống trên server không
+      try {
+        await _client.auth.getUser();
+        print("✅ Session RAM hợp lệ & User tồn tại.");
+        return;
+      } catch (_) {
+        print("⚠️ Session RAM có, nhưng User đã bị xóa trên server.");
+      }
+    }
+
+    // 2. THỬ KHÔI PHỤC TỪ LOCAL STORAGE
+    bool isRecovered = false;
+
     try {
-      // 1. Gọi API Supabase
-      final AuthResponse res = await _client.auth.signInAnonymously();
+      final savedRefreshToken = await TokenManager.instance.getRefreshToken();
 
-      final session = res.session;
+      if (savedRefreshToken != null && savedRefreshToken.isNotEmpty) {
+        print("🔄 Đang thử khôi phục User cũ...");
 
-      // 2. Gọi hàm saveAuthInfo của TokenManager
-      if (session != null) {
-        await TokenManager.instance.saveAuthInfo(
-            session.accessToken,
-            session.refreshToken ?? '',
-            'guest'
-        );
-        print("✅ Guest Login: Đã lưu token & role thành công.");
-      } else {
-        throw Exception("Không nhận được Session từ Supabase.");
+        // Set Session
+        final res = await _client.auth.setSession(savedRefreshToken);
+
+        // Gọi lên Server kiểm tra xem User còn sống không?
+        final userCheck = await _client.auth.getUser();
+
+        if (res.session != null && userCheck.user != null) {
+          print("✅ Khôi phục thành công. User ID: ${userCheck.user!.id}");
+
+          await TokenManager.instance.saveAuthInfo(
+              res.session!.accessToken,
+              res.session!.refreshToken ?? '',
+              'guest'
+          );
+
+          isRecovered = true;
+        }
       }
     } catch (e) {
-      throw Exception('Lỗi đăng nhập khách: ${e.toString()}');
+      print("⚠️ Token rác hoặc User đã bị xóa: $e");
+      await TokenManager.instance.clearAuth();
+      try { await _client.auth.signOut(); } catch (_) {}
+    }
+
+    if (isRecovered) return;
+
+    // 3. TẠO MỚI
+    try {
+      print("🚀 Đang tạo Guest User mới (Real)...");
+
+      final res = await _client.auth.signInAnonymously();
+
+      if (res.session != null) {
+        await TokenManager.instance.saveAuthInfo(
+            res.session!.accessToken,
+            res.session!.refreshToken ?? '',
+            'guest'
+        );
+        print("✅ Tạo Guest mới thành công.");
+      } else {
+        throw Exception("Supabase không trả về Session.");
+      }
+    } catch (e) {
+      throw Exception('Lỗi đăng nhập khách: $e');
     }
   }
 
+  // Getter kiểm tra nhanh
   bool get isGuest {
     final user = _client.auth.currentUser;
     return user?.isAnonymous ?? false;
   }
 
+  // Lấy Role KHÔNG CẦN GỌI DATABASE
   Future<String> getCurrentRole() async {
+    // Ưu tiên 1: Lấy từ Local Storage
     String? storedRole = await TokenManager.instance.getUserRole();
     if (storedRole != null && storedRole.isNotEmpty) {
       return storedRole;
     }
 
-    // Nếu không có trong storage mới gọi API check lại
     final user = _client.auth.currentUser;
     if (user == null) return '';
-    try {
-      final data = await _client
-          .from('users')
-          .select('role')
-          .eq('id', user.id)
-          .maybeSingle();
-      return data?['role']?.toString() ?? 'guest';
-    } catch (e) {
-      return 'guest';
+
+    // Ưu tiên 2: Nếu là Anonymous User -> Guest
+    if (user.isAnonymous) return 'guest';
+
+    // Ưu tiên 3: Lấy từ Metadata
+    final roleFromMeta = user.appMetadata['role'];
+    if (roleFromMeta != null) {
+      return roleFromMeta.toString();
     }
+
+    return 'user';
   }
 
   // ==========================================================
@@ -80,6 +127,7 @@ class AuthService {
 
   Future<void> login({required String identifier, required String password}) async {
     try {
+      // Lưu lại ID khách cũ để dọn dẹp sau khi login thành công
       String? oldGuestId;
       if (isGuest) {
         oldGuestId = _client.auth.currentUser?.id;
@@ -87,8 +135,9 @@ class AuthService {
 
       String input = identifier.trim();
       String emailToLogin = "";
+      String role = 'user';
 
-      // 1. Kiểm tra User trong DB để lấy Role
+      // 1. Kiểm tra User trong DB
       final response = await _client
           .from('users')
           .select('email, role, username, locked_until')
@@ -99,8 +148,7 @@ class AuthService {
         throw Exception('Tài khoản không tồn tại!');
       }
 
-      // Lấy Role từ DB để tí nữa lưu vào TokenManager
-      final String role = response['role']?.toString() ?? 'user';
+      role = response['role']?.toString() ?? 'user';
       final String? dbUsername = response['username'];
       final String? lockedUntilStr = response['locked_until'];
       emailToLogin = response['email'] as String;
@@ -110,13 +158,13 @@ class AuthService {
       }
 
       if (dbUsername == null) {
-        throw Exception('Tài khoản lỗi (thiếu username). Vui lòng đăng ký lại.');
+        throw Exception('Dữ liệu tài khoản lỗi (thiếu username).');
       }
 
       if (lockedUntilStr != null) {
         DateTime lockedTime = DateTime.parse(lockedUntilStr);
         if (lockedTime.isAfter(DateTime.now())) {
-          throw Exception('Tài khoản đang bị KHÓA đến ${lockedTime.toLocal()}.');
+          throw Exception('Tài khoản bị KHÓA đến ${lockedTime.toLocal().toString().split('.')[0]}.');
         }
       }
 
@@ -128,7 +176,7 @@ class AuthService {
 
       final session = res.session;
 
-      // 3. Lưu Token & Role vào máy bằng TokenManager
+      // 3. Lưu Token & Role
       if (session != null) {
         await TokenManager.instance.saveAuthInfo(
             session.accessToken,
@@ -153,6 +201,7 @@ class AuthService {
     }
   }
 
+  // Hàm dọn dẹp guest
   Future<void> _cleanupGuestAccount(String guestId) async {
     try {
       await http.post(
@@ -166,7 +215,33 @@ class AuthService {
   }
 
   // ==========================================================
-  // PHẦN 3: LUỒNG ĐĂNG KÝ
+  // PHẦN 3: XỬ LÝ TOKEN & LOGOUT & TIỆN ÍCH
+  // ==========================================================
+
+  // Hàm logout
+  Future<void> logout() async {
+    try {
+      await _client.auth.signOut();
+    } catch (_) {}
+    await TokenManager.instance.clearAuth();
+  }
+
+  // Hàm xử lý hết hạn token (Đá về login)
+  Future<void> handleTokenExpired(BuildContext context) async {
+    if (!context.mounted) return;
+    await logout();
+    Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Phiên đăng nhập hết hạn."))
+    );
+  }
+
+  User? get currentUser => _client.auth.currentUser;
+
+  bool get isLoggedIn => _client.auth.currentSession != null;
+
+  // ==========================================================
+  // PHẦN 4: LUỒNG ĐĂNG KÝ
   // ==========================================================
 
   Future<String> sendRegisterOtp(String email) async {
@@ -240,7 +315,7 @@ class AuthService {
   }
 
   // ==========================================================
-  // PHẦN 4: LUỒNG QUÊN MẬT KHẨU
+  // PHẦN 5: LUỒNG QUÊN MẬT KHẨU
   // ==========================================================
 
   Future<String> sendRecoveryOtp(String email) async {
@@ -297,21 +372,4 @@ class AuthService {
       throw Exception(jsonDecode(response.body)['message'] ?? 'Lỗi đổi mật khẩu');
     }
   }
-
-  // ==========================================================
-  // PHẦN 5: TIỆN ÍCH CHUNG
-  // ==========================================================
-
-  Future<void> logout() async {
-    try {
-      await _client.auth.signOut();
-    } catch (e) {
-      print("⚠️ Logout Auth Error: $e");
-    } finally {
-      await TokenManager.instance.clearAuth();
-    }
-  }
-
-  User? get currentUser => _client.auth.currentUser;
-  bool get isLoggedIn => _client.auth.currentSession != null;
 }
