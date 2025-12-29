@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 
-import '../../models/song_model.dart';
-import '../../providers/songs_provider.dart';
-import '../widgets/song_card.dart';
+import '../../../models/song_model.dart';
+import '../../../providers/songs_provider.dart';
+import '../../widgets/song_card.dart';
 
 class SongsScreen extends StatefulWidget {
   final Function(SongModel) onSongClick;

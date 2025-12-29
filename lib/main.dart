@@ -3,11 +3,11 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 // Import các màn hình
-import 'ui/screens/login_screen.dart';
-import 'ui/screens/register_screen.dart';
-import 'ui/screens/reset_password_screen.dart';
+import 'ui/screens/auth/login_screen.dart';
+import 'ui/screens/auth/register_screen.dart';
+import 'ui/screens/auth/reset_password_screen.dart';
 import 'ui/screens/navbar_screen.dart';
-import 'ui/screens/song_detail_screen.dart';
+import 'ui/screens/songs/song_detail_screen.dart';
 import 'ui/screens/splash_screen.dart';
 
 // Import services, providers & utils

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../services/auth_service.dart';
+import '../../../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   final Function(bool) onLoginSuccess;
@@ -214,7 +214,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         _showToast("Lỗi đăng nhập khách");
                       }
                     },
-                    child: const Text("Bỏ qua đăng nhập", style: TextStyle(color: Colors.black54)),
+                    child: const Text("Đăng nhập bằng tài khoản khách", style: TextStyle(color: Colors.black54)),
                   ),
 
                   const SizedBox(height: 24),

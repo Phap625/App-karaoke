@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:shimmer/shimmer.dart'; // [QUAN TRỌNG] Nhớ import thư viện này
+import 'package:shimmer/shimmer.dart';
 
-import '../../services/auth_service.dart';
-import '../../services/user_service.dart';
-import '../../models/user_model.dart';
+import '../../../services/auth_service.dart';
+import '../../../services/user_service.dart';
+import '../../../models/user_model.dart';
 
 class MeScreen extends StatefulWidget {
   final VoidCallback onLogoutClick;

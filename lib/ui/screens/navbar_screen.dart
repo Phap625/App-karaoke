@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../../models/song_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import '../../models/song_model.dart';
 import '../../services/auth_service.dart';
-import 'home_screen.dart';
-import 'me_screen.dart';
-import 'songs_screen.dart';
+import 'home/home_screen.dart';
+import 'me/me_screen.dart';
+import 'songs/songs_screen.dart';
+import 'moments/moments_screen.dart';
+import 'message/message_screen.dart';
 
 class NavbarScreen extends StatefulWidget {
   final VoidCallback onLogout;
@@ -24,60 +25,128 @@ class NavbarScreen extends StatefulWidget {
 
 class _NavbarScreenState extends State<NavbarScreen> {
   int _selectedIndex = 0;
-  StreamSubscription? _userSubscription;
+
+  // Subscription lắng nghe thay đổi User (Khóa / Xóa) từ Database
+  StreamSubscription? _userDbSubscription;
+
+  // Subscription lắng nghe trạng thái Auth (Token, SignOut...)
+  StreamSubscription<AuthState>? _authSubscription;
 
   @override
   void initState() {
     super.initState();
+
+    // 1. Kiểm tra ngay khi màn hình này vừa hiện lên
+    _checkInitialSession();
+
+    // 2. Lắng nghe sự kiện đăng xuất/hết hạn token từ Supabase SDK
+    _setupAuthListener();
+
+    // 3. Lắng nghe Realtime từ Database (Khóa & Xóa)
     _setupAccountListener();
   }
 
   @override
   void dispose() {
-    _userSubscription?.cancel();
+    _userDbSubscription?.cancel();
+    _authSubscription?.cancel();
     super.dispose();
   }
 
-  // --- LOGIC LẮNG NGHE KHÓA TÀI KHOẢN ---
+  // --- 1. KIỂM TRA SESSION BAN ĐẦU ---
+  void _checkInitialSession() async {
+    final bool hasSession = AuthService.instance.isLoggedIn;
+
+    if (!hasSession) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          AuthService.instance.handleTokenExpired(context);
+        }
+      });
+    }
+  }
+
+  // --- 2. LẮNG NGHE SỰ KIỆN AUTH (SDK) ---
+  void _setupAuthListener() {
+    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      final AuthChangeEvent event = data.event;
+
+      // Các sự kiện cho thấy phiên đăng nhập đã kết thúc
+      if (event == AuthChangeEvent.signedOut ||
+          event == AuthChangeEvent.userDeleted ||
+          (event == AuthChangeEvent.tokenRefreshed && data.session == null)) {
+
+        if (mounted) {
+          Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+        }
+      }
+    });
+  }
+
+  // --- 3. LOGIC LẮNG NGHE REALTIME DB (KHÓA & XÓA) ---
   void _setupAccountListener() {
     final user = Supabase.instance.client.auth.currentUser;
-    if (user == null || AuthService.instance.isGuest) return;
 
-    _userSubscription = Supabase.instance.client
+    if (user == null) return;
+
+    _userDbSubscription = Supabase.instance.client
         .from('users')
         .stream(primaryKey: ['id'])
         .eq('id', user.id)
         .listen((List<Map<String, dynamic>> data) {
+
+      // [CASE 1]: BỊ XÓA
+      if (data.isEmpty) {
+        print("🔥 REALTIME: Tài khoản (User/Guest) đã bị xóa -> Force Logout");
+        _forceLogout(isDeleted: true);
+        return;
+      }
+
+      if (AuthService.instance.isGuest) return;
+
+      // [CASE 2]: BỊ KHÓA (Chỉ User thường mới chạy xuống đây)
       if (data.isNotEmpty) {
         final userData = data.first;
         final lockedUntilStr = userData['locked_until'];
         if (lockedUntilStr != null) {
           DateTime lockedTime = DateTime.parse(lockedUntilStr);
           if (lockedTime.isAfter(DateTime.now())) {
-            _forceLogout();
+            print("🔒 REALTIME: User bị khóa -> Force Logout");
+            _forceLogout(isDeleted: false);
           }
         }
       }
     });
   }
 
-  Future<void> _forceLogout() async {
-    _userSubscription?.cancel();
+  // Hàm xử lý Logout bắt buộc (Dùng chung cho Xóa và Khóa)
+  Future<void> _forceLogout({required bool isDeleted}) async {
+    // 1. Hủy lắng nghe để tránh loop
+    _userDbSubscription?.cancel();
+    _authSubscription?.cancel();
+
+    // 2. Logout khỏi hệ thống
     await AuthService.instance.logout();
+
     if (!mounted) return;
+
+    // 3. Hiển thị Dialog thông báo
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: const Text("Tài khoản bị khóa"),
-        content: const Text("Tài khoản của bạn đã bị khóa do vi phạm quy định."),
+        title: Text(isDeleted ? "Tài khoản không tồn tại" : "Tài khoản bị khóa"),
+        content: Text(isDeleted
+            ? "Tài khoản của bạn đã bị xóa khỏi hệ thống."
+            : "Tài khoản của bạn đã bị khóa do vi phạm quy định."),
         actions: [
           TextButton(
             onPressed: () {
               Navigator.of(ctx).pop();
-              widget.onLogout();
+              // Chuyển thẳng về Login và xóa stack
+              Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
             },
-            child: const Text("Đã hiểu", style: TextStyle(color: Colors.red)),
+            child: const Text("Đồng ý", style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -89,20 +158,16 @@ class _NavbarScreenState extends State<NavbarScreen> {
     switch (_selectedIndex) {
       case 0:
         return const HomeScreen();
-
       case 1:
-        return const _CenteredText("Khoảnh Khắc (Coming Soon)");
-
+        return const MomentsScreen();
       case 2:
         return SongsScreen(
           onSongClick: (song) {
             widget.onSongClick(song);
           },
         );
-
       case 3:
-        return const _CenteredText("Tin nhắn (Coming Soon)");
-
+        return const MessageScreen();
       case 4:
         return MeScreen(
           onLogoutClick: widget.onLogout,
@@ -166,18 +231,6 @@ class _NavbarScreenState extends State<NavbarScreen> {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _CenteredText extends StatelessWidget {
-  final String text;
-  const _CenteredText(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(text, style: const TextStyle(fontSize: 18, color: Colors.grey)),
     );
   }
 }

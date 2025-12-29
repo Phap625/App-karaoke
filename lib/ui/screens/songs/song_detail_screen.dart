@@ -9,9 +9,9 @@ import 'package:scroll_to_index/scroll_to_index.dart';
 import 'package:http/http.dart' as http;
 import 'package:wakelock_plus/wakelock_plus.dart';
 
-import '../../models/song_model.dart';
-import '../../services/song_service.dart';
-import '../../utils/lrc_parser.dart';
+import '../../../models/song_model.dart';
+import '../../../services/song_service.dart';
+import '../../../utils/lrc_parser.dart';
 
 class SongDetailScreen extends StatefulWidget {
   final int songId;
@@ -28,6 +28,7 @@ class SongDetailScreen extends StatefulWidget {
 }
 
 class _SongDetailScreenState extends State<SongDetailScreen> with TickerProviderStateMixin {
+  // ... (Phần khai báo biến giữ nguyên như cũ)
   SongModel? _song;
   List<LyricLine> _lyrics = [];
   bool _isLoading = true;
@@ -37,11 +38,10 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
 
   final AutoScrollController _scrollController = AutoScrollController();
   late AnimationController _diskController;
-  final int _syncOffset = -220;
+  final int _syncOffset = -100; // Tinh chỉnh lại offset nếu cần
 
   bool _isVocalEnabled = false;
   bool _hasVocalUrl = false;
-
   bool _isCompleted = false;
 
   int _lastAutoScrollIndex = -1;
@@ -67,18 +67,16 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
     });
 
     _beatPlayer.playerStateStream.listen((state) {
-      // [MỚI] Cập nhật trạng thái hoàn thành
       if (state.processingState == ProcessingState.completed) {
         if (mounted) {
           setState(() {
-            _isCompleted = true; // Đánh dấu đã xong
+            _isCompleted = true;
             _diskController.stop();
           });
         }
         _vocalPlayer.pause();
         _vocalPlayer.seek(Duration.zero);
       } else if (state.playing) {
-        // Nếu đang hát thì chắc chắn chưa xong
         if (_isCompleted && mounted) setState(() => _isCompleted = false);
       }
     });
@@ -86,6 +84,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
     _loadData();
   }
 
+  // ... (dispose, _loadData, _toggleVocal, _onSeek, _onPlayPause giữ nguyên) ...
   @override
   void dispose() {
     WakelockPlus.disable();
@@ -146,17 +145,14 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
     _beatPlayer.seek(position);
     if (_hasVocalUrl) _vocalPlayer.seek(position);
 
-    // Khi tua lại, reset trạng thái completed
     if (_isCompleted) {
       setState(() => _isCompleted = false);
       if (!_diskController.isAnimating && _beatPlayer.playing) _diskController.repeat();
     }
   }
 
-  // [MỚI] Logic nút Play/Pause/Replay
   void _onPlayPause() {
     if (_isCompleted) {
-      // Nếu đã xong -> Replay
       _beatPlayer.seek(Duration.zero);
       if (_hasVocalUrl) _vocalPlayer.seek(Duration.zero);
       _beatPlayer.play();
@@ -167,12 +163,10 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
         _diskController.repeat();
       });
     } else if (_beatPlayer.playing) {
-      // Đang hát -> Pause
       _beatPlayer.pause();
       if (_hasVocalUrl) _vocalPlayer.pause();
       _diskController.stop();
     } else {
-      // Đang dừng -> Play tiếp
       if (_hasVocalUrl) {
         _vocalPlayer.seek(_beatPlayer.position);
         _vocalPlayer.play();
@@ -183,10 +177,19 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
     setState(() {});
   }
 
+  // --- LOGIC TÌM DÒNG & SCROLL ---
+
+  // Hàm tìm index dòng đang hát
+  int _findActiveLineIndex(int currentMs) {
+    if (_lyrics.isEmpty) return -1;
+    // Tìm dòng cuối cùng mà startTime <= currentMs
+    return _lyrics.lastIndexWhere((line) => currentMs >= line.startTime);
+  }
+
+  // Hàm scroll tay khi user dừng thao tác
   void _scrollToCurrentLine() {
     if (_lyrics.isEmpty) return;
     final currentMs = _beatPlayer.position.inMilliseconds;
-    // Tìm index an toàn hơn
     final activeIndex = _findActiveLineIndex(currentMs);
 
     if (activeIndex != -1 && _scrollController.hasClients) {
@@ -199,19 +202,10 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
     }
   }
 
-  // [MỚI] Logic tìm dòng hát "thông minh" hơn
-  // Thay vì check range (start <= t <= end), ta tìm dòng cuối cùng mà t >= start.
-  // Điều này giúp giữ trạng thái active cho dòng đó cho đến khi dòng tiếp theo thực sự bắt đầu.
-  int _findActiveLineIndex(int currentMs) {
-    if (_lyrics.isEmpty) return -1;
-    // lastIndexWhere trả về index cao nhất thỏa mãn điều kiện
-    return _lyrics.lastIndexWhere((line) => currentMs >= line.startTime);
-  }
-
+  // Hàm auto scroll
   void _autoScroll(Duration position) {
     if (_lyrics.isEmpty) return;
     int currentMs = position.inMilliseconds;
-
     final activeIndex = _findActiveLineIndex(currentMs);
 
     if (activeIndex != -1 && activeIndex != _lastAutoScrollIndex) {
@@ -220,16 +214,15 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
         _scrollController.scrollToIndex(
           activeIndex,
           preferPosition: AutoScrollPosition.middle,
-          duration: const Duration(milliseconds: 600), // Cuộn mượt
+          duration: const Duration(milliseconds: 600),
         );
       }
     }
   }
 
-  // ... (build, _buildHeader giữ nguyên) ...
+  // ... (UI build, _buildHeader, _buildControls giữ nguyên) ...
   @override
   Widget build(BuildContext context) {
-    // (Code build UI giữ nguyên như bài trước)
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -293,6 +286,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
     );
   }
 
+  // --- [QUAN TRỌNG] PHẦN XỬ LÝ LYRIC MỚI ---
   Widget _buildLyricSection() {
     if (_lyrics.isEmpty) {
       return const Center(child: Text("Đang tải lời...", style: TextStyle(color: Colors.grey)));
@@ -305,10 +299,27 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
         final position = snapshot.data ?? Duration.zero;
         final currentMs = position.inMilliseconds + _syncOffset;
 
-        final activeIndex = _findActiveLineIndex(currentMs);
+        int activeIndex = _findActiveLineIndex(currentMs);
+
+        // Logic 5s ẩn highlight (Giữ nguyên yêu cầu của bạn)
+        bool highlightActiveLine = true;
+        if (activeIndex != -1 && activeIndex < _lyrics.length) {
+          final currentLine = _lyrics[activeIndex];
+          if (currentMs > currentLine.endTime + 5000) {
+            if (activeIndex + 1 < _lyrics.length) {
+              final nextLine = _lyrics[activeIndex + 1];
+              if (currentMs < nextLine.startTime) {
+                highlightActiveLine = false;
+              }
+            } else {
+              highlightActiveLine = false;
+            }
+          }
+        }
 
         return NotificationListener<ScrollNotification>(
           onNotification: (notification) {
+            // ... (Logic scroll user giữ nguyên)
             if (notification is ScrollStartNotification) {
               if (notification.dragDetails != null) {
                 _isUserScrolling = true;
@@ -334,6 +345,34 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
             cacheExtent: 500,
             itemBuilder: (context, index) {
               final line = _lyrics[index];
+
+              // --- LOGIC 1: ĐẾM NGƯỢC (Giữ nguyên) ---
+              int? countdownValue;
+              int timeUntilStart = line.startTime - currentMs;
+              if (timeUntilStart > 0 && timeUntilStart <= 4000) {
+                if (index == 0) {
+                  countdownValue = (timeUntilStart / 1000).ceil();
+                } else {
+                  final prevLine = _lyrics[index - 1];
+                  if (line.startTime - prevLine.endTime >= 10000) {
+                    countdownValue = (timeUntilStart / 1000).ceil();
+                  }
+                }
+                if (countdownValue != null && countdownValue! > 3) countdownValue = null;
+              }
+
+              // --- LOGIC 2 [MỚI]: KIỂM TRA FAST FLOW ---
+              // Kiểm tra xem dòng này và dòng sau có sát nhau quá không?
+              bool isFastFlow = false;
+              if (index < _lyrics.length - 1) {
+                final nextLine = _lyrics[index + 1];
+                final gap = nextLine.startTime - line.endTime;
+                // Nếu khoảng cách < 600ms -> Là nhạc nhanh
+                if (gap < 600) {
+                  isFastFlow = true;
+                }
+              }
+
               return AutoScrollTag(
                 key: ValueKey(index),
                 controller: _scrollController,
@@ -341,8 +380,11 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
                 child: KaraokeLineItem(
                   line: line,
                   currentPositionMs: currentMs,
-                  index: index,              // [MỚI] Truyền index dòng này
-                  activeIndex: activeIndex,  // [MỚI] Truyền index đang hát
+                  index: index,
+                  activeIndex: activeIndex,
+                  highlightActiveLine: highlightActiveLine,
+                  countdownValue: countdownValue,
+                  isFastFlow: isFastFlow,
                 ),
               );
             },
@@ -363,7 +405,6 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
             var position = snapshotPosition.data ?? Duration.zero;
             if (position > duration) position = duration;
 
-            // [MỚI] Xác định icon Play/Pause hay Replay
             IconData playIcon = Icons.play_arrow;
             if (_isCompleted) {
               playIcon = Icons.replay;
@@ -375,7 +416,6 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(
                 children: [
-                  // (Slider code cũ giữ nguyên)
                   SliderTheme(
                     data: SliderTheme.of(context).copyWith(
                       thumbColor: const Color(0xFFFF00CC),
@@ -407,8 +447,6 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
                         iconSize: 32,
                         icon: Icon(Icons.mic, color: _isVocalEnabled ? const Color(0xFFFF00CC) : Colors.grey),
                       ),
-
-                      // Nút Play/Pause/Replay
                       GestureDetector(
                         onTap: _onPlayPause,
                         child: Container(
@@ -418,13 +456,9 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
                             color: Color(0xFFFF00CC),
                             boxShadow: [BoxShadow(color: Color(0x66FF00CC), blurRadius: 15, spreadRadius: 2)],
                           ),
-                          child: Icon(
-                            playIcon, // [MỚI] Sử dụng icon động
-                            color: Colors.white, size: 32,
-                          ),
+                          child: Icon(playIcon, color: Colors.white, size: 32),
                         ),
                       ),
-
                       IconButton(
                         onPressed: () {},
                         iconSize: 32,
@@ -449,13 +483,15 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
   }
 }
 
-// --- WIDGET KARAOKE CẢI TIẾN ---
+// --- CLASS WIDGET MỚI: ĐỒNG BỘ LAYOUT ---
 class KaraokeLineItem extends StatelessWidget {
   final LyricLine line;
   final int currentPositionMs;
-  // [MỚI] Thêm tham số để biết dòng nào đang hát
   final int index;
   final int activeIndex;
+  final bool highlightActiveLine;
+  final int? countdownValue;
+  final bool isFastFlow; // [MỚI] Nhận biết nhạc nhanh
 
   const KaraokeLineItem({
     Key? key,
@@ -463,103 +499,143 @@ class KaraokeLineItem extends StatelessWidget {
     required this.currentPositionMs,
     required this.index,
     required this.activeIndex,
+    this.highlightActiveLine = true,
+    this.countdownValue,
+    this.isFastFlow = false,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    // 1. LOGIC 2 DÒNG ZOOM
-    // Dòng hiện tại (activeIndex) -> Zoom to nhất
-    bool isCurrentLine = (index == activeIndex);
-    // Dòng kế tiếp (activeIndex + 1) -> Zoom vừa (chuẩn bị)
-    bool isNextLine = (index == activeIndex + 1);
+    bool isActive = (index == activeIndex);
+    bool isNextFocus = (index == activeIndex + 1);
 
-    // Logic hiển thị "đã qua" (nhưng giữ lại dòng vừa hát xong cho đến khi dòng mới bắt đầu hẳn)
-    bool isPastLine = index < activeIndex;
-
-    const double fixedFontSize = 18.0;
-    final TextStyle commonStyle = TextStyle(
-      fontSize: fixedFontSize,
-      fontWeight: FontWeight.w600,
-      height: 1.4,
-      color: Colors.white,
-    );
-
-    // Tính toán Scale và Opacity linh hoạt
+    // --- TÍNH TOÁN SCALE & OPACITY (QUAY VỀ LOGIC CŨ) ---
+    // Bỏ hoàn toàn việc giữ Active 500ms -> Chuyển dòng là thu nhỏ ngay lập tức.
     double scale = 1.0;
     double opacity = 0.5;
 
-    if (isCurrentLine) {
-      scale = 1.1;      // Dòng đang hát: To nhất
-      opacity = 1.0;     // Sáng nhất
-    } else if (isNextLine) {
-      scale = 1.0;       // Dòng kế tiếp: Hơi to (để mắt dễ đọc trước)
-      opacity = 0.8;     // Hơi sáng
-    } else if (isPastLine) {
-      scale = 0.8;
-      opacity = 0.3;     // Dòng đã qua: Mờ hẳn
+    if (isActive) {
+      if (highlightActiveLine) {
+        scale = 1.1;
+        opacity = 1.0;
+      } else {
+        scale = 1.0;
+        opacity = 0.6;
+      }
     }
+    else if (isNextFocus) {
+      if (!highlightActiveLine) {
+        scale = 1.05;
+        opacity = 0.9;
+      } else {
+        scale = 1.0;
+        opacity = 0.6;
+      }
+    } else if (index < activeIndex) {
+      // Đã qua -> Nhỏ và mờ
+      scale = 0.95;
+      opacity = 0.3;
+    }
+
+    const double fixedFontSize = 16.0;
+    const TextStyle commonStyle = TextStyle(
+      fontSize: fixedFontSize,
+      fontWeight: FontWeight.w600,
+      height: 1.5,
+      color: Colors.white,
+      fontFamily: 'Roboto',
+    );
 
     return AnimatedOpacity(
       opacity: opacity,
-      duration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 500),
       curve: Curves.easeOut,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-        // Điều chỉnh margin để tạo không gian
-        margin: EdgeInsets.symmetric(
-          vertical: isCurrentLine ? 16.0 : (isNextLine ? 10.0 : 6.0),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: AnimatedScale(
-            scale: scale,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-            alignment: Alignment.center,
-            child: isCurrentLine
-                ? _buildActiveLine(commonStyle)
-                : Text(
-              line.content,
-              textAlign: TextAlign.center,
-              style: commonStyle,
-            ),
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 12.0),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        child: AnimatedScale(
+          scale: scale,
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeOut,
+          alignment: Alignment.center,
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 4.0,
+            runSpacing: 4.0,
+            children: [
+              if (countdownValue != null)
+                Container(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: Text(
+                    "$countdownValue",
+                    style: const TextStyle(
+                      color: Color(0xFFFF00CC),
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+
+              // Loop qua từng từ
+              ...line.words.asMap().entries.map((entry) {
+                final wordIndex = entry.key;
+                final word = entry.value;
+                // Kiểm tra xem đây có phải từ cuối cùng của dòng không
+                final isLastWord = wordIndex == line.words.length - 1;
+
+                return _buildWord(
+                  word,
+                  commonStyle,
+                  isActive && highlightActiveLine,
+                  index < activeIndex,
+                  isLastWord, // Truyền thêm thông tin từ cuối
+                );
+              }).toList(),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildActiveLine(TextStyle style) {
-    return Wrap(
-      alignment: WrapAlignment.center,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 4.0,
-      runSpacing: 2.0,
-      children: line.words.map((word) {
-        return _buildSingleWord(word, style);
-      }).toList(),
-    );
-  }
-
-  Widget _buildSingleWord(LyricWord word, TextStyle style) {
-    // Logic tô màu từng chữ
-    // Lưu ý: Dù dòng active giữ lại (do index == activeIndex),
-    // nhưng việc tô màu vẫn dựa trên thời gian thực tế của từ.
-
-    final isWordPast = currentPositionMs >= word.endTime;
-    final isWordFuture = currentPositionMs < word.startTime;
-
-    if (isWordPast) {
+  Widget _buildWord(LyricWord word, TextStyle style, bool shouldKaraoke, bool isPastLine, bool isLastWord) {
+    // 1. Nếu dòng đã qua -> Ép full hồng (Backup an toàn)
+    if (isPastLine) {
       return Text(word.text, style: style.copyWith(color: const Color(0xFFFF00CC)));
     }
 
-    if (isWordFuture) {
+    if (!shouldKaraoke) {
+      return Text(word.text, style: style);
+    }
+
+    // 2. Logic Karaoke
+    if (currentPositionMs >= word.endTime) {
+      return Text(word.text, style: style.copyWith(color: const Color(0xFFFF00CC)));
+    }
+
+    if (currentPositionMs < word.startTime) {
       return Text(word.text, style: style.copyWith(color: Colors.white));
     }
 
-    // ĐANG HÁT
-    final double progress = (currentPositionMs - word.startTime) / (word.endTime - word.startTime);
+    // [LOGIC TĂNG TỐC ĐỔ MÀU]
+    double effectiveEndTime = word.endTime.toDouble();
+
+    // Nếu đây là từ cuối cùng VÀ bài hát đang đoạn nhanh (Fast Flow)
+    if (isLastWord && isFastFlow) {
+      // Ăn gian: Coi như từ này kết thúc sớm hơn 250ms so với thực tế
+      // Để hiệu ứng tô màu chạy nhanh hơn và cán đích 100% trước khi hết giờ.
+      // (Dùng clamp để không bị lỗi nếu từ quá ngắn)
+      double fakeEnd = effectiveEndTime - 250;
+      if (fakeEnd > word.startTime) {
+        effectiveEndTime = fakeEnd;
+      }
+    }
+
+    // Tính toán progress dựa trên thời gian kết thúc đã chỉnh sửa (effectiveEndTime)
+    final double progress = (currentPositionMs - word.startTime) / (effectiveEndTime - word.startTime);
     final clampedProgress = progress.clamp(0.0, 1.0);
 
     return ShaderMask(

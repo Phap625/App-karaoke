@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/token_manager.dart';
 import '../../services/user_service.dart';
-import 'login_screen.dart';
+import 'auth/login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({Key? key}) : super(key: key);
