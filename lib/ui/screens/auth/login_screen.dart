@@ -65,7 +65,6 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     const primaryColor = Color(0xFFFF00CC);
 
-    // Bọc Theme màu trắng để đảm bảo chuyển cảnh không bị nháy đen/tối
     return Theme(
       data: Theme.of(context).copyWith(
         scaffoldBackgroundColor: Colors.white,
@@ -203,7 +202,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   const SizedBox(height: 16),
 
-                  // Nút Guest đổi sang màu tối hoặc màu Primary cho dễ nhìn
                   TextButton(
                     onPressed: () async {
                       try {

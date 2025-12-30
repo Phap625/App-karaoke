@@ -28,7 +28,6 @@ class SongDetailScreen extends StatefulWidget {
 }
 
 class _SongDetailScreenState extends State<SongDetailScreen> with TickerProviderStateMixin {
-  // ... (Phần khai báo biến giữ nguyên như cũ)
   SongModel? _song;
   List<LyricLine> _lyrics = [];
   bool _isLoading = true;
@@ -38,7 +37,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
 
   final AutoScrollController _scrollController = AutoScrollController();
   late AnimationController _diskController;
-  final int _syncOffset = -100; // Tinh chỉnh lại offset nếu cần
+  final int _syncOffset = -100;
 
   bool _isVocalEnabled = false;
   bool _hasVocalUrl = false;
@@ -84,7 +83,6 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
     _loadData();
   }
 
-  // ... (dispose, _loadData, _toggleVocal, _onSeek, _onPlayPause giữ nguyên) ...
   @override
   void dispose() {
     WakelockPlus.disable();
@@ -182,7 +180,6 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
   // Hàm tìm index dòng đang hát
   int _findActiveLineIndex(int currentMs) {
     if (_lyrics.isEmpty) return -1;
-    // Tìm dòng cuối cùng mà startTime <= currentMs
     return _lyrics.lastIndexWhere((line) => currentMs >= line.startTime);
   }
 
@@ -220,7 +217,6 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
     }
   }
 
-  // ... (UI build, _buildHeader, _buildControls giữ nguyên) ...
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -286,7 +282,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
     );
   }
 
-  // --- [QUAN TRỌNG] PHẦN XỬ LÝ LYRIC MỚI ---
+  // --- PHẦN XỬ LÝ LYRIC ---
   Widget _buildLyricSection() {
     if (_lyrics.isEmpty) {
       return const Center(child: Text("Đang tải lời...", style: TextStyle(color: Colors.grey)));
@@ -301,7 +297,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
 
         int activeIndex = _findActiveLineIndex(currentMs);
 
-        // Logic 5s ẩn highlight (Giữ nguyên yêu cầu của bạn)
+        // Logic 5s ẩn highlight
         bool highlightActiveLine = true;
         if (activeIndex != -1 && activeIndex < _lyrics.length) {
           final currentLine = _lyrics[activeIndex];
@@ -319,7 +315,6 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
 
         return NotificationListener<ScrollNotification>(
           onNotification: (notification) {
-            // ... (Logic scroll user giữ nguyên)
             if (notification is ScrollStartNotification) {
               if (notification.dragDetails != null) {
                 _isUserScrolling = true;
@@ -346,7 +341,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
             itemBuilder: (context, index) {
               final line = _lyrics[index];
 
-              // --- LOGIC 1: ĐẾM NGƯỢC (Giữ nguyên) ---
+              // --- LOGIC 1: ĐẾM NGƯỢC ---
               int? countdownValue;
               int timeUntilStart = line.startTime - currentMs;
               if (timeUntilStart > 0 && timeUntilStart <= 4000) {
@@ -361,13 +356,11 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
                 if (countdownValue != null && countdownValue! > 3) countdownValue = null;
               }
 
-              // --- LOGIC 2 [MỚI]: KIỂM TRA FAST FLOW ---
-              // Kiểm tra xem dòng này và dòng sau có sát nhau quá không?
+              // --- LOGIC 2: KIỂM TRA FAST FLOW ---
               bool isFastFlow = false;
               if (index < _lyrics.length - 1) {
                 final nextLine = _lyrics[index + 1];
                 final gap = nextLine.startTime - line.endTime;
-                // Nếu khoảng cách < 600ms -> Là nhạc nhanh
                 if (gap < 600) {
                   isFastFlow = true;
                 }
@@ -445,7 +438,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
                       IconButton(
                         onPressed: _toggleVocal,
                         iconSize: 32,
-                        icon: Icon(Icons.mic, color: _isVocalEnabled ? const Color(0xFFFF00CC) : Colors.grey),
+                        icon: Icon(Icons.record_voice_over, color: _isVocalEnabled ? const Color(0xFFFF00CC) : Colors.grey),
                       ),
                       GestureDetector(
                         onTap: _onPlayPause,
@@ -483,7 +476,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
   }
 }
 
-// --- CLASS WIDGET MỚI: ĐỒNG BỘ LAYOUT ---
+// --- ĐỒNG BỘ LAYOUT ---
 class KaraokeLineItem extends StatelessWidget {
   final LyricLine line;
   final int currentPositionMs;
@@ -491,7 +484,7 @@ class KaraokeLineItem extends StatelessWidget {
   final int activeIndex;
   final bool highlightActiveLine;
   final int? countdownValue;
-  final bool isFastFlow; // [MỚI] Nhận biết nhạc nhanh
+  final bool isFastFlow;
 
   const KaraokeLineItem({
     Key? key,
@@ -509,8 +502,7 @@ class KaraokeLineItem extends StatelessWidget {
     bool isActive = (index == activeIndex);
     bool isNextFocus = (index == activeIndex + 1);
 
-    // --- TÍNH TOÁN SCALE & OPACITY (QUAY VỀ LOGIC CŨ) ---
-    // Bỏ hoàn toàn việc giữ Active 500ms -> Chuyển dòng là thu nhỏ ngay lập tức.
+    // --- TÍNH TOÁN SCALE & OPACITY ---
     double scale = 1.0;
     double opacity = 0.5;
 
@@ -532,7 +524,6 @@ class KaraokeLineItem extends StatelessWidget {
         opacity = 0.6;
       }
     } else if (index < activeIndex) {
-      // Đã qua -> Nhỏ và mờ
       scale = 0.95;
       opacity = 0.3;
     }
@@ -583,7 +574,6 @@ class KaraokeLineItem extends StatelessWidget {
               ...line.words.asMap().entries.map((entry) {
                 final wordIndex = entry.key;
                 final word = entry.value;
-                // Kiểm tra xem đây có phải từ cuối cùng của dòng không
                 final isLastWord = wordIndex == line.words.length - 1;
 
                 return _buildWord(
@@ -591,7 +581,7 @@ class KaraokeLineItem extends StatelessWidget {
                   commonStyle,
                   isActive && highlightActiveLine,
                   index < activeIndex,
-                  isLastWord, // Truyền thêm thông tin từ cuối
+                  isLastWord,
                 );
               }).toList(),
             ],
@@ -602,7 +592,7 @@ class KaraokeLineItem extends StatelessWidget {
   }
 
   Widget _buildWord(LyricWord word, TextStyle style, bool shouldKaraoke, bool isPastLine, bool isLastWord) {
-    // 1. Nếu dòng đã qua -> Ép full hồng (Backup an toàn)
+    // 1. Nếu dòng đã qua -> Ép full hồng
     if (isPastLine) {
       return Text(word.text, style: style.copyWith(color: const Color(0xFFFF00CC)));
     }
@@ -620,21 +610,16 @@ class KaraokeLineItem extends StatelessWidget {
       return Text(word.text, style: style.copyWith(color: Colors.white));
     }
 
-    // [LOGIC TĂNG TỐC ĐỔ MÀU]
     double effectiveEndTime = word.endTime.toDouble();
 
-    // Nếu đây là từ cuối cùng VÀ bài hát đang đoạn nhanh (Fast Flow)
     if (isLastWord && isFastFlow) {
-      // Ăn gian: Coi như từ này kết thúc sớm hơn 250ms so với thực tế
-      // Để hiệu ứng tô màu chạy nhanh hơn và cán đích 100% trước khi hết giờ.
-      // (Dùng clamp để không bị lỗi nếu từ quá ngắn)
       double fakeEnd = effectiveEndTime - 250;
       if (fakeEnd > word.startTime) {
         effectiveEndTime = fakeEnd;
       }
     }
 
-    // Tính toán progress dựa trên thời gian kết thúc đã chỉnh sửa (effectiveEndTime)
+    // Tính toán progress dựa trên thời gian kết thúc
     final double progress = (currentPositionMs - word.startTime) / (effectiveEndTime - word.startTime);
     final clampedProgress = progress.clamp(0.0, 1.0);
 

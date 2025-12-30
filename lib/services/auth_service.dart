@@ -23,10 +23,8 @@ class AuthService {
       await logout();
     }
 
-    // Nếu trong RAM đang có session guest còn hạn -> Dùng luôn
     final currentSession = _client.auth.currentSession;
     if (currentSession != null && !currentSession.isExpired && currentSession.user.isAnonymous) {
-      // Kiểm tra xem user này còn sống trên server không
       try {
         await _client.auth.getUser();
         print("✅ Session RAM hợp lệ & User tồn tại.");

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import '../models/song_model.dart'; // [QUAN TRỌNG] Import file chứa SongResponse
+import '../models/song_model.dart';
 import '../services/song_service.dart';
 
 class SongsProvider extends ChangeNotifier {
-  // 1. Dữ liệu bài hát (Đổi kiểu dữ liệu từ HomeResponse -> SongResponse)
+  // 1. Dữ liệu bài hát
   SongResponse? _data;
   SongResponse? get data => _data;
 
@@ -20,18 +20,18 @@ class SongsProvider extends ChangeNotifier {
     fetchSongsData();
   }
 
-  // Hàm lấy dữ liệu (Đổi tên hàm từ fetchHomeData -> fetchSongsData cho hợp lý)
+  // Hàm lấy dữ liệu
   Future<void> fetchSongsData() async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      // Gọi service (Lưu ý: Service phải trả về SongResponse)
+      // Gọi service
       _data = await SongService.instance.getSongsOverview();
     } catch (e) {
       _errorMessage = "Lỗi kết nối: ${e.toString()}";
-      debugPrint(_errorMessage); // Dùng debugPrint thay cho print
+      debugPrint(_errorMessage);
     } finally {
       _isLoading = false;
       notifyListeners();

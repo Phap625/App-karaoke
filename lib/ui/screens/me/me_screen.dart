@@ -115,7 +115,6 @@ class _MeScreenState extends State<MeScreen> {
           centerTitle: true,
           elevation: 0
       ),
-      // Kiểm tra loading để hiện Skeleton
       body: _isLoading
           ? const _MeSkeletonLoading()
           : RefreshIndicator(
@@ -152,9 +151,9 @@ class _MeScreenState extends State<MeScreen> {
               ),
 
               if (_isGuest)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12.0),
-                  child: const Text(
+                const Padding(
+                  padding: EdgeInsets.only(top: 12.0),
+                  child: Text(
                     "Đăng nhập để lưu bài hát vĩnh viễn và tham gia cộng đồng!",
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.grey, fontSize: 12),

@@ -184,7 +184,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   padding: const EdgeInsets.all(24),
                   child: Column(
                     children: [
-                      // Progress Bar
                       ClipRRect(
                         borderRadius: BorderRadius.circular(4),
                         child: LinearProgressIndicator(

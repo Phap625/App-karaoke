@@ -16,10 +16,8 @@ class SongsScreen extends StatefulWidget {
 }
 
 class _SongsScreenState extends State<SongsScreen> with AutomaticKeepAliveClientMixin {
-  // [SỬA] Dùng SongsProvider thay vì HomeProvider
   late SongsProvider _songsProvider;
 
-  // [SỬA] Biến static cache theo kiểu SongsProvider
   static SongsProvider? _cachedProvider;
   static double _cachedScrollPosition = 0.0;
 
@@ -71,7 +69,7 @@ class _SongsScreenState extends State<SongsScreen> with AutomaticKeepAliveClient
             IconButton(
               icon: const Icon(Icons.search, color: Colors.black),
               onPressed: () {
-                // Xử lý tìm kiếm sau
+                // Xử lý tìm kiếm
               },
             ),
           ],
@@ -97,7 +95,7 @@ class _SongsScreenState extends State<SongsScreen> with AutomaticKeepAliveClient
                         style: const TextStyle(color: Colors.red)),
                     const SizedBox(height: 16),
                     ElevatedButton.icon(
-                      // [SỬA] Gọi hàm fetchSongsData
+                      //Gọi hàm fetchSongsData
                       onPressed: () => provider.fetchSongsData(),
                       icon: const Icon(Icons.refresh),
                       label: const Text("Thử lại"),

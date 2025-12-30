@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/token_manager.dart';
 import '../../services/user_service.dart';
+import '../../services/auth_service.dart';
 import 'auth/login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -58,7 +59,7 @@ class _SplashScreenState extends State<SplashScreen> {
     } catch (e) {
       // === TRƯỜNG HỢP 3: TOKEN HẾT HẠN HOẶC KHÔNG HỢP LỆ ===
       debugPrint("SPLASH: Token lỗi hoặc hết hạn: $e");
-      await TokenManager.instance.clearAuth();
+      await AuthService.instance.logout();
       _navigateToLogin();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -118,7 +119,6 @@ class _SplashScreenState extends State<SplashScreen> {
 
               const SizedBox(height: 50),
 
-              // Loading indicator
               const CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF00CC)),
                 strokeWidth: 3,
