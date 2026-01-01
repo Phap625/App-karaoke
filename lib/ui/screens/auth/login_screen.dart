@@ -3,10 +3,12 @@ import '../../../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   final Function(bool) onLoginSuccess;
+  final String? initialErrorMessage;
 
   const LoginScreen({
     Key? key,
     required this.onLoginSuccess,
+    this.initialErrorMessage,
   }) : super(key: key);
 
   @override
@@ -21,16 +23,35 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.initialErrorMessage != null && widget.initialErrorMessage!.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showToast(widget.initialErrorMessage!, isError: true);
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _identifierController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  void _showToast(String message) {
+  void _showToast(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+      SnackBar(
+        content: Text(
+          message,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: isError ? Colors.redAccent : Colors.black87,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(20),
+        duration: const Duration(seconds: 3),
+      ),
     );
   }
 

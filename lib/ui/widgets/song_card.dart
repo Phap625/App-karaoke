@@ -11,6 +11,16 @@ class SongCard extends StatelessWidget {
     required this.onTap,
   }) : super(key: key);
 
+  // Hàm rút gọn số view
+  String _formatViewCount(int views) {
+    if (views >= 1000000) {
+      return '${(views / 1000000).toStringAsFixed(1)}M';
+    } else if (views >= 1000) {
+      return '${(views / 1000).toStringAsFixed(1)}k';
+    }
+    return views.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -26,23 +36,60 @@ class SongCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Ảnh bìa
+              // --- PHẦN 1: ẢNH BÌA + VIEW COUNT---
               SizedBox(
                 height: 120,
                 width: double.infinity,
-                child: Image.network(
-                  song.imageUrl ?? "https://via.placeholder.com/150",
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      color: Colors.grey[300],
-                      child: const Icon(Icons.music_note, color: Colors.grey),
-                    );
-                  },
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // 1. Ảnh nền
+                    Image.network(
+                      song.imageUrl ?? "https://via.placeholder.com/150",
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          color: Colors.grey[300],
+                          child: const Icon(Icons.music_note, color: Colors.grey),
+                        );
+                      },
+                    ),
+
+                    // 2. Badge hiển thị View Count
+                    Positioned(
+                      bottom: 6,
+                      right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.6),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.mic,
+                                color: Colors.white, size: 12),
+                            const SizedBox(width: 2),
+                            Text(
+                              // Giả sử model có trường viewCount, mặc định là 0
+                              _formatViewCount(song.viewCount ?? 0),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
 
-              // Thông tin bài hát
+              // --- PHẦN 2: THÔNG TIN BÀI HÁT ---
               Padding(
                 padding: const EdgeInsets.all(8.0),
                 child: Column(
@@ -55,6 +102,7 @@ class SongCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
+                    const SizedBox(height: 2),
                     Text(
                       song.artistName,
                       style: const TextStyle(color: Colors.grey, fontSize: 12),

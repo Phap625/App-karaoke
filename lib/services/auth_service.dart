@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../utils/token_manager.dart';
+import '../utils/user_manager.dart';
 import 'api_client.dart';
 
 class AuthService {
@@ -116,7 +117,6 @@ class AuthService {
 
   Future<void> login({required String identifier, required String password}) async {
     try {
-      // Lưu lại ID khách cũ để dọn dẹp sau khi login thành công
       String? oldGuestId;
       if (isGuest) {
         oldGuestId = _client.auth.currentUser?.id;
@@ -150,10 +150,11 @@ class AuthService {
         throw Exception('Dữ liệu tài khoản lỗi (thiếu username).');
       }
 
+      // Check khóa tài khoản
       if (lockedUntilStr != null) {
-        DateTime lockedTime = DateTime.parse(lockedUntilStr);
+        DateTime lockedTime = DateTime.parse(lockedUntilStr).toLocal();
         if (lockedTime.isAfter(DateTime.now())) {
-          throw Exception('Tài khoản bị KHÓA đến ${lockedTime.toLocal().toString().split('.')[0]}.');
+          throw Exception('Tài khoản bị KHÓA đến ${lockedTime.toString().split('.')[0]}.');
         }
       }
 
@@ -165,15 +166,33 @@ class AuthService {
 
       final session = res.session;
 
-      // 3. Lưu Token & Role
-      if (session != null) {
+      // 3. XỬ LÝ SESSION ID
+      if (session != null && res.user != null) {
+        // Lưu Token vào TokenManager
         await TokenManager.instance.saveAuthInfo(
             session.accessToken,
             session.refreshToken ?? '',
             role
         );
+
+        // --- ĐỒNG BỘ SESSION ID TỪ TOKEN ---
+        final String supabaseSessionId = await UserManager.instance.syncSessionFromToken(session.accessToken);
+
+        final nowUtc = DateTime.now().toUtc().toIso8601String();
+
+        // A. Cập nhật ID này lên Database
+        await _client.from('users').update({
+          'current_session_id': supabaseSessionId,
+          'last_sign_in_at': nowUtc,
+          'last_active_at': nowUtc,
+        }).eq('id', res.user!.id);
+
+
+        // C. Khởi động Manager (Guard)
+        UserManager.instance.init();
+
       } else {
-        throw Exception("Đăng nhập thất bại: Không có Session.");
+        throw Exception("Đăng nhập thất bại!");
       }
 
       // 4. Dọn dẹp Guest cũ
@@ -276,7 +295,7 @@ class AuthService {
   }) async {
     final usernameRegex = RegExp(r'^[a-zA-Z0-9]{3,20}$');
     if (!usernameRegex.hasMatch(username)) {
-      throw Exception('Tên đăng nhập 3-20 ký tự, không dấu.');
+      throw Exception('Tên đăng nhập 3-20 ký tự, chỉ chứa chữ cái và số!');
     }
 
     try {

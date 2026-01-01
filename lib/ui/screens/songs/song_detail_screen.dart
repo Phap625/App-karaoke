@@ -27,7 +27,8 @@ class SongDetailScreen extends StatefulWidget {
   State<SongDetailScreen> createState() => _SongDetailScreenState();
 }
 
-class _SongDetailScreenState extends State<SongDetailScreen> with TickerProviderStateMixin {
+class _SongDetailScreenState extends State<SongDetailScreen> {
+  // Bỏ TickerProviderStateMixin vì không còn dùng Animation đĩa xoay
   SongModel? _song;
   List<LyricLine> _lyrics = [];
   bool _isLoading = true;
@@ -36,7 +37,9 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
   final AudioPlayer _vocalPlayer = AudioPlayer();
 
   final AutoScrollController _scrollController = AutoScrollController();
-  late AnimationController _diskController;
+
+  // Đã xóa _diskController
+
   final int _syncOffset = -100;
 
   bool _isVocalEnabled = false;
@@ -54,8 +57,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
     super.initState();
     WakelockPlus.enable();
 
-    _diskController = AnimationController(vsync: this, duration: const Duration(seconds: 10));
-
+    // Lắng nghe vị trí để update lyric
     _beatPlayer.positionStream.listen((position) {
       if (!_positionStreamController.isClosed) {
         _positionStreamController.add(position);
@@ -65,12 +67,12 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
       }
     });
 
+    // Lắng nghe trạng thái player
     _beatPlayer.playerStateStream.listen((state) {
       if (state.processingState == ProcessingState.completed) {
         if (mounted) {
           setState(() {
             _isCompleted = true;
-            _diskController.stop();
           });
         }
         _vocalPlayer.pause();
@@ -89,7 +91,6 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
     _beatPlayer.dispose();
     _vocalPlayer.dispose();
     _scrollController.dispose();
-    _diskController.dispose();
     _userScrollTimeoutTimer?.cancel();
     _positionStreamController.close();
     super.dispose();
@@ -115,7 +116,6 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
 
       _beatPlayer.play();
       if (_hasVocalUrl) _vocalPlayer.play();
-      _diskController.repeat();
 
       if (song.lyricUrl != null) {
         final response = await http.get(Uri.parse(song.lyricUrl!));
@@ -145,7 +145,6 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
 
     if (_isCompleted) {
       setState(() => _isCompleted = false);
-      if (!_diskController.isAnimating && _beatPlayer.playing) _diskController.repeat();
     }
   }
 
@@ -158,32 +157,26 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
 
       setState(() {
         _isCompleted = false;
-        _diskController.repeat();
       });
     } else if (_beatPlayer.playing) {
       _beatPlayer.pause();
       if (_hasVocalUrl) _vocalPlayer.pause();
-      _diskController.stop();
     } else {
       if (_hasVocalUrl) {
         _vocalPlayer.seek(_beatPlayer.position);
         _vocalPlayer.play();
       }
       _beatPlayer.play();
-      if (!_diskController.isAnimating) _diskController.repeat();
     }
     setState(() {});
   }
 
   // --- LOGIC TÌM DÒNG & SCROLL ---
-
-  // Hàm tìm index dòng đang hát
   int _findActiveLineIndex(int currentMs) {
     if (_lyrics.isEmpty) return -1;
     return _lyrics.lastIndexWhere((line) => currentMs >= line.startTime);
   }
 
-  // Hàm scroll tay khi user dừng thao tác
   void _scrollToCurrentLine() {
     if (_lyrics.isEmpty) return;
     final currentMs = _beatPlayer.position.inMilliseconds;
@@ -199,7 +192,6 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
     }
   }
 
-  // Hàm auto scroll
   void _autoScroll(Duration position) {
     if (_lyrics.isEmpty) return;
     int currentMs = position.inMilliseconds;
@@ -219,73 +211,84 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+
     return Scaffold(
-      extendBodyBehindAppBar: true,
+      // AppBar custom để hiện tên bài hát/ca sĩ
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-        title: const Text("Đang phát", style: TextStyle(color: Colors.white)),
+        // PHẦN 1: Thay Header thành Tên bài + Ca sĩ
+        title: Column(
+          children: [
+            Text(
+              _song?.title ?? "Đang tải...",
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _song?.artistName ?? "",
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+                color: Colors.white70,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: widget.onBack,
         ),
       ),
+      extendBodyBehindAppBar: true,
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF3E005E), Color(0xFF000000)],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
+            colors: [Colors.black87, Colors.black],
           ),
         ),
-        child: _isLoading || _song == null
-            ? const Center(child: CircularProgressIndicator(color: Colors.white))
-            : Column(
+        child: Column(
           children: [
-            SizedBox(height: kToolbarHeight + MediaQuery.of(context).padding.top + 20),
-            _buildHeader(),
-            const SizedBox(height: 20),
-            Expanded(
-              child: RepaintBoundary(child: _buildLyricSection()),
+            // Khoảng cách an toàn cho AppBar
+            SizedBox(height: kToolbarHeight + MediaQuery.of(context).padding.top),
+
+            // PHẦN 2: Lyric Area (2/3 màn hình)
+            SizedBox(
+              height: size.height * 0.66,
+              width: double.infinity,
+              // Wrapper để chứa Lyric
+              child: _buildLyricSection(),
             ),
-            _buildControls(),
-            const SizedBox(height: 30),
+
+            // PHẦN 3: Controls Area (Phần còn lại)
+            Expanded(
+              child: _buildControls(),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildHeader() {
-    return Column(
-      children: [
-        RotationTransition(
-          turns: _diskController,
-          child: Container(
-            width: 220, height: 220,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.grey, width: 2),
-              image: DecorationImage(
-                image: NetworkImage(_song!.imageUrl ?? "https://via.placeholder.com/220"),
-                fit: BoxFit.cover,
-              ),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 10, spreadRadius: 2)],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Text(_song!.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-        Text(_song!.artistName, style: const TextStyle(fontSize: 14, color: Colors.white70)),
-      ],
-    );
-  }
-
   // --- PHẦN XỬ LÝ LYRIC ---
   Widget _buildLyricSection() {
     if (_lyrics.isEmpty) {
-      return const Center(child: Text("Đang tải lời...", style: TextStyle(color: Colors.grey)));
+      if (_isLoading) {
+        return const Center(child: CircularProgressIndicator(color: Color(0xFFFF00CC)));
+      }
+      return const Center(child: Text("Chưa có lời bài hát", style: TextStyle(color: Colors.white54)));
     }
 
     return StreamBuilder<Duration>(
@@ -334,7 +337,8 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
           },
           child: ListView.builder(
             controller: _scrollController,
-            padding: const EdgeInsets.symmetric(vertical: 120),
+            // Điều chỉnh padding vì khung nhìn giờ đã nhỏ lại (cố định), không cần padding quá lớn
+            padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
             itemCount: _lyrics.length,
             physics: const BouncingScrollPhysics(),
             cacheExtent: 500,
@@ -406,17 +410,18 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
             }
 
             return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   SliderTheme(
                     data: SliderTheme.of(context).copyWith(
                       thumbColor: const Color(0xFFFF00CC),
                       activeTrackColor: const Color(0xFFFF00CC),
-                      inactiveTrackColor: Colors.grey,
+                      inactiveTrackColor: Colors.white24,
                       trackHeight: 4,
-                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
                     ),
                     child: Slider(
                       value: position.inMilliseconds.toDouble(),
@@ -427,35 +432,50 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(_formatTime(position), style: const TextStyle(color: Colors.white, fontSize: 12)),
-                      Text(_formatTime(duration), style: const TextStyle(color: Colors.white, fontSize: 12)),
+                      Text(_formatTime(position), style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                      Text(_formatTime(duration), style: const TextStyle(color: Colors.white70, fontSize: 12)),
                     ],
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 20),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       IconButton(
                         onPressed: _toggleVocal,
-                        iconSize: 32,
-                        icon: Icon(Icons.record_voice_over, color: _isVocalEnabled ? const Color(0xFFFF00CC) : Colors.grey),
+                        iconSize: 28,
+                        tooltip: "Bật/Tắt lời ca sĩ",
+                        icon: Icon(Icons.record_voice_over, color: _isVocalEnabled ? const Color(0xFFFF00CC) : Colors.white54),
+                      ),
+                      IconButton(
+                        onPressed: () {
+                          // Logic Previous (nếu có)
+                        },
+                        iconSize: 40,
+                        icon: const Icon(Icons.skip_previous_rounded, color: Colors.white),
                       ),
                       GestureDetector(
                         onTap: _onPlayPause,
                         child: Container(
-                          width: 64, height: 64,
+                          width: 70, height: 70,
                           decoration: const BoxDecoration(
                             shape: BoxShape.circle,
                             color: Color(0xFFFF00CC),
-                            boxShadow: [BoxShadow(color: Color(0x66FF00CC), blurRadius: 15, spreadRadius: 2)],
+                            boxShadow: [BoxShadow(color: Color(0x66FF00CC), blurRadius: 20, spreadRadius: 2)],
                           ),
-                          child: Icon(playIcon, color: Colors.white, size: 32),
+                          child: Icon(playIcon, color: Colors.white, size: 38),
                         ),
                       ),
                       IconButton(
+                        onPressed: () {
+                          // Logic Next (nếu có)
+                        },
+                        iconSize: 40,
+                        icon: const Icon(Icons.skip_next_rounded, color: Colors.white),
+                      ),
+                      IconButton(
                         onPressed: () {},
-                        iconSize: 32,
-                        icon: const Icon(Icons.playlist_play, color: Colors.grey),
+                        iconSize: 28,
+                        icon: const Icon(Icons.playlist_play_rounded, color: Colors.white54),
                       ),
                     ],
                   ),
@@ -476,7 +496,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> with TickerProvider
   }
 }
 
-// --- ĐỒNG BỘ LAYOUT ---
+// --- CLASS KaraokeLineItem GIỮ NGUYÊN ---
 class KaraokeLineItem extends StatelessWidget {
   final LyricLine line;
   final int currentPositionMs;
@@ -528,7 +548,7 @@ class KaraokeLineItem extends StatelessWidget {
       opacity = 0.3;
     }
 
-    const double fixedFontSize = 16.0;
+    const double fixedFontSize = 18.0;
     const TextStyle commonStyle = TextStyle(
       fontSize: fixedFontSize,
       fontWeight: FontWeight.w600,
@@ -544,7 +564,7 @@ class KaraokeLineItem extends StatelessWidget {
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 12.0),
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        // Không padding horizontal ở đây nữa vì đã padding ở ListView cha
         child: AnimatedScale(
           scale: scale,
           duration: const Duration(milliseconds: 500),
@@ -553,8 +573,8 @@ class KaraokeLineItem extends StatelessWidget {
           child: Wrap(
             alignment: WrapAlignment.center,
             crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 4.0,
-            runSpacing: 4.0,
+            spacing: 6.0,
+            runSpacing: 6.0,
             children: [
               if (countdownValue != null)
                 Container(
@@ -563,7 +583,7 @@ class KaraokeLineItem extends StatelessWidget {
                     "$countdownValue",
                     style: const TextStyle(
                       color: Color(0xFFFF00CC),
-                      fontSize: 14,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                       fontStyle: FontStyle.italic,
                     ),
@@ -592,24 +612,29 @@ class KaraokeLineItem extends StatelessWidget {
   }
 
   Widget _buildWord(LyricWord word, TextStyle style, bool shouldKaraoke, bool isPastLine, bool isLastWord) {
-    // 1. Nếu dòng đã qua -> Ép full hồng
+    // 1. Nếu dòng đã qua hẳn (dựa trên index) -> Ép full hồng
     if (isPastLine) {
       return Text(word.text, style: style.copyWith(color: const Color(0xFFFF00CC)));
     }
 
     if (!shouldKaraoke) {
+      if (currentPositionMs >= word.endTime) {
+        return Text(word.text, style: style.copyWith(color: const Color(0xFFFF00CC)));
+      }
       return Text(word.text, style: style);
     }
 
-    // 2. Logic Karaoke
+    // 2. Logic Karaoke (Shader)
     if (currentPositionMs >= word.endTime) {
       return Text(word.text, style: style.copyWith(color: const Color(0xFFFF00CC)));
     }
 
+    // Nếu chưa đến từ này -> Màu trắng
     if (currentPositionMs < word.startTime) {
       return Text(word.text, style: style.copyWith(color: Colors.white));
     }
 
+    // Tính toán Shader gradient
     double effectiveEndTime = word.endTime.toDouble();
 
     if (isLastWord && isFastFlow) {
@@ -619,7 +644,6 @@ class KaraokeLineItem extends StatelessWidget {
       }
     }
 
-    // Tính toán progress dựa trên thời gian kết thúc
     final double progress = (currentPositionMs - word.startTime) / (effectiveEndTime - word.startTime);
     final clampedProgress = progress.clamp(0.0, 1.0);
 

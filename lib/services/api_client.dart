@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Headers;
+import '../utils/user_manager.dart';
 
 class ApiClient {
   static final ApiClient instance = ApiClient._internal();
@@ -7,7 +8,6 @@ class ApiClient {
   late final Dio dio;
 
   // static const String baseUrl = "http://10.0.2.2:3000";
-
   static const String baseUrl = 'https://karaokeplus.cloud';
 
   ApiClient._internal() {
@@ -21,9 +21,11 @@ class ApiClient {
 
     dio = Dio(options);
 
-    // --- INTERCEPTOR: Tự động gắn Token Supabase vào header ---
+    // --- INTERCEPTOR: Tự động gắn Token & BÁO CÁO HOẠT ĐỘNG ---
     dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) async {
+        UserManager.instance.notifyApiActivity();
+
         final session = Supabase.instance.client.auth.currentSession;
         final token = session?.accessToken;
 

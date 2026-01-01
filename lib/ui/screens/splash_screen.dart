@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../utils/token_manager.dart';
+import '../../utils/user_manager.dart';
 import '../../services/user_service.dart';
 import '../../services/auth_service.dart';
 import 'auth/login_screen.dart';
@@ -18,16 +19,16 @@ class _SplashScreenState extends State<SplashScreen> {
     _checkAppState();
   }
 
-  void _navigateToLogin() {
+  void _navigateToLogin({String? message}) {
     if (!mounted) return;
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (context) => LoginScreen(
+          initialErrorMessage: message,
           onLoginSuccess: (bool isSuccess) {
-            if (isSuccess) {
-              Navigator.pushReplacementNamed(context, '/home');
-            }
+            if (isSuccess) Navigator.pushReplacementNamed(context, '/home');
           },
         ),
       ),
@@ -36,48 +37,60 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _checkAppState() async {
     final accessToken = await TokenManager.instance.getAccessToken();
-    final hasToken = accessToken != null && accessToken.isNotEmpty;
-
     await Future.delayed(const Duration(seconds: 1));
 
-    // === TRƯỜNG HỢP 1 ===
-    if (!hasToken) {
+    // 1. Token không tồn tại -> Login
+    if (accessToken == null || accessToken.isEmpty) {
       debugPrint("SPLASH: Không có token -> Login");
       _navigateToLogin();
       return;
     }
 
-    // === TRƯỜNG HỢP 2 ===
     try {
-      debugPrint("SPLASH: Có token -> Đang kiểm tra profile...");
-
-      // Thử lấy profile user
+      // 2. Kiểm tra Token còn sống không (Lấy Profile)
       await UserService.instance.getUserProfile();
 
-      // Nếu không lỗi -> Vào Home
-      debugPrint("SPLASH: Token OK -> Home");
+      // 3. Nếu Token OK -> Kiểm tra Session ID (Đá thiết bị cũ)
+      await UserManager.instance.checkSessionValidity();
+
+      debugPrint("SPLASH: Mọi thứ OK -> Vào Home");
       if (mounted) Navigator.pushReplacementNamed(context, '/home');
 
     } catch (e) {
-      debugPrint("SPLASH: Lỗi lấy profile (có thể hết hạn): $e");
+      String errorMsg = e.toString();
+      debugPrint("SPLASH: Lỗi check app state: $errorMsg");
 
+      // A. Nếu lỗi là do đăng nhập nơi khác (từ checkSessionValidity) -> Báo lỗi ngay
+      if (errorMsg.contains("đăng nhập trên thiết bị khác") || errorMsg.contains("bị khóa")) {
+        await AuthService.instance.logout();
+        _navigateToLogin(message: errorMsg);
+        return;
+      }
+
+      // B. Nếu lỗi do Token hết hạn (401...) -> Thử Refresh
       try {
-        debugPrint("SPLASH: Đang thử làm mới phiên đăng nhập (Refresh Token)...");
-
-        // Gọi hàm phục hồi session
-        final bool recovered = await AuthService.instance.recoverSession();
+        debugPrint("SPLASH: Token có thể hết hạn -> Thử Refresh...");
+        final recovered = await AuthService.instance.recoverSession();
 
         if (recovered) {
-          debugPrint("SPLASH: Refresh thành công -> Vào Home");
+          // Refresh xong thì phải check lại Session ID lần nữa cho chắc
+          await UserManager.instance.checkSessionValidity();
+
           if (mounted) Navigator.pushReplacementNamed(context, '/home');
           return;
         }
-      } catch (refreshError) {
-        debugPrint("SPLASH: Refresh thất bại: $refreshError");
+      } catch (refreshErr) {
+        // Nếu refresh lỗi, hoặc sau khi refresh check session lại bị lỗi
+        String refreshMsg = refreshErr.toString();
+        if (refreshMsg.contains("đăng nhập trên thiết bị khác")) {
+          await AuthService.instance.logout();
+          _navigateToLogin(message: refreshMsg);
+          return;
+        }
       }
 
-      // === TRƯỜNG HỢP 3 ===
-      debugPrint("SPLASH: Token chết hẳn -> Logout và về Login");
+      // C.Về Login (Phiên hết hạn thường)
+      debugPrint("SPLASH: Token chết hẳn -> Logout");
       await AuthService.instance.logout();
       _navigateToLogin();
     }
@@ -116,7 +129,7 @@ class _SplashScreenState extends State<SplashScreen> {
               const SizedBox(height: 20),
 
               const Text(
-                "KARAOKE ENTERTAINMENT PLUS",
+                "KARAOKE PLUS",
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 22,

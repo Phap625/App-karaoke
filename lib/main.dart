@@ -15,6 +15,8 @@ import 'services/auth_service.dart';
 import 'providers/songs_provider.dart';
 import 'utils/token_manager.dart';
 
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -37,14 +39,14 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => SongsProvider()),
       ],
       child: MaterialApp(
-        title: 'KARAOKE ENTERTAINMENT PLUS',
+        title: 'KARAOKE PLUS',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           primaryColor: const Color(0xFFFF00CC),
           colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFFF00CC)),
           useMaterial3: true,
         ),
-
+        navigatorKey: navigatorKey,
         // Màn hình khởi động
         home: const SplashScreen(),
 

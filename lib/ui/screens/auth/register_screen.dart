@@ -96,14 +96,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final password = _passwordController.text;
     final confirmPass = _confirmPasswordController.text;
 
+    // 1. Check trống
     if (username.isEmpty || fullName.isEmpty || password.isEmpty) {
       _showToast("Vui lòng điền đủ thông tin");
       return;
     }
+
+    // 2.Check độ dài mật khẩu (Tối thiểu 6 ký tự)
+    if (password.length < 6) {
+      _showToast("Mật khẩu phải có tối thiểu 6 ký tự");
+      return;
+    }
+
+    // 3. Check mật khẩu xác nhận
     if (password != confirmPass) {
       _showToast("Mật khẩu xác nhận không khớp");
       return;
     }
+
+    // 4. Check chọn Tỉnh/Thành
     if (_selectedRegion == null) {
       _showToast("Vui lòng chọn Tỉnh/Thành phố");
       return;

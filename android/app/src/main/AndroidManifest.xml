@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
-        android:label="Karaoke Entertainment Plus"
+        android:label="Karaoke Plus"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"

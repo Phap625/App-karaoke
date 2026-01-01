@@ -39,6 +39,7 @@ dependencies:
 
   shimmer: ^3.0.0
   wakelock_plus: ^1.2.8
+  jwt_decoder: ^2.0.1
 
 dev_dependencies:
   flutter_test:
