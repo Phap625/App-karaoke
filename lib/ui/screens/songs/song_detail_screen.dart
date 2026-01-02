@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -8,7 +9,6 @@ import 'package:just_audio/just_audio.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
 import 'package:http/http.dart' as http;
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'dart:io';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -18,7 +18,7 @@ import '../../../models/song_model.dart';
 import '../../../services/song_service.dart';
 import '../../../utils/lrc_parser.dart';
 
-// 1. CẬP NHẬT MODEL ĐỂ LƯU CẢ THỜI GIAN KẾT THÚC
+// --- MODEL SECTIONS ---
 class SongSection {
   final String name;
   final Duration startTime;
@@ -31,6 +31,7 @@ class SongSection {
   });
 }
 
+// --- MAIN SCREEN ---
 class SongDetailScreen extends StatefulWidget {
   final int songId;
   final VoidCallback onBack;
@@ -46,97 +47,61 @@ class SongDetailScreen extends StatefulWidget {
 }
 
 class _SongDetailScreenState extends State<SongDetailScreen> {
+  // 1. Data Variables
   SongModel? _song;
   List<LyricLine> _lyrics = [];
   List<SongSection> _sections = [];
   bool _isLoading = true;
+  bool _isLyricsLoaded = false; // Kiểm soát việc hiện nút/lời
   bool _isFavorite = false;
 
+  // 2. Audio & Players
   final AudioPlayer _beatPlayer = AudioPlayer();
   final AudioPlayer _vocalPlayer = AudioPlayer();
-  final AutoScrollController _scrollController = AutoScrollController();
-  final int _syncOffset = -99;
-
   bool _isVocalEnabled = false;
   bool _hasVocalUrl = false;
-  bool _isCompleted = false;
+  double _beatVolume = 1.0;
+  double _vocalVolume = 0.0;
+  double _savedVocalVolume = 1.0;
 
+  // 3. Recording State
+  late final AudioRecorder _audioRecorder;
+  bool _isRecording = false;
+  String? _recordingPath;
+  Timer? _recordTimer;
+  Duration _currentRecDuration = Duration.zero;
+  bool _isSessionStarted = false; // Đã bắt đầu phiên hát chưa
+  bool _isCompleted = false;      // Đã hát xong bài chưa
+
+  // 4. UI & Scrolling
+  final AutoScrollController _scrollController = AutoScrollController();
+  final int _syncOffset = -99;
   int _lastAutoScrollIndex = -1;
   bool _isUserScrolling = false;
   Timer? _userScrollTimeoutTimer;
   final StreamController<Duration> _positionStreamController = StreamController.broadcast();
+  bool _isDraggingSeekBar = false;
+  double? _dragValue;
 
-  late final AudioRecorder _audioRecorder;
-  bool _isRecording = false;
-  String? _recordingPath;
-
-  // --- CÁC BIẾN QUẢN LÝ SECTION ---
+  // 5. Section & Countdown
   Duration? _targetEndTime;
-  int _selectedSectionIndex = -1;
+  int _selectedSectionIndex = -2; // -2: Init, -1: Full Song, >=0: Section
+  bool _isSwitchingSection = false;
   bool _isCountingDown = false;
   int _countdownValue = 3;
   Timer? _countdownTimer;
 
-  // --- CÁC BIẾN QUẢN LÝ TRẠNG THÁI UI/SLIDER ---
-  bool _isDraggingSeekBar = false;
-  double? _dragValue;
-
-  bool _isSwitchingSection = false;
+  // ========================
+  // LIFECYCLE METHODS
+  // ========================
 
   @override
   void initState() {
     super.initState();
-    WakelockPlus.enable();
+    WakelockPlus.enable(); // Giữ màn hình luôn sáng
     _audioRecorder = AudioRecorder();
     _initAudioSession();
-
-    _beatPlayer.positionStream.listen((position) {
-      if (!_positionStreamController.isClosed) {
-        _positionStreamController.add(position);
-      }
-
-      // Nếu đang bận chuyển đoạn thì KHÔNG được kích hoạt dừng nhạc
-      if (_targetEndTime != null && !_isSwitchingSection && position >= _targetEndTime!) {
-        _stopAtSectionEnd();
-      }
-
-      // Chỉ cuộn khi đang phát và KHÔNG kéo slider
-      if (_beatPlayer.playing && !_isUserScrolling && !_isDraggingSeekBar) {
-        _autoScroll(position);
-      }
-    });
-
-    _beatPlayer.playerStateStream.listen((state) {
-      if (state.processingState == ProcessingState.completed) {
-        if (_targetEndTime == null) {
-          if (mounted) setState(() => _isCompleted = true);
-          _beatPlayer.pause();
-          if (_hasVocalUrl) _vocalPlayer.pause();
-          _beatPlayer.seek(Duration.zero);
-          if (_hasVocalUrl) _vocalPlayer.seek(Duration.zero);
-          _lastAutoScrollIndex = -1;
-          setState(() {
-            _selectedSectionIndex = -1;
-            _isUserScrolling = false;
-          });
-          if (_scrollController.hasClients && _lyrics.isNotEmpty) {
-            _scrollController.scrollToIndex(0, preferPosition: AutoScrollPosition.middle);
-          }
-        }
-      }
-      else if (state.playing) {
-        if (_isCompleted && mounted) setState(() => _isCompleted = false);
-        if (_hasVocalUrl && _isVocalEnabled && !_vocalPlayer.playing) {
-          _vocalPlayer.play();
-        }
-      }
-      else if (!state.playing) {
-        if (_hasVocalUrl && _vocalPlayer.playing) {
-          _vocalPlayer.pause();
-        }
-      }
-    });
-
+    _setupAudioListeners();
     _loadData();
   }
 
@@ -150,142 +115,65 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     _userScrollTimeoutTimer?.cancel();
     _countdownTimer?.cancel();
     _positionStreamController.close();
+    _stopRecordTimer();
     super.dispose();
   }
 
-  void _stopAtSectionEnd() {
-    _beatPlayer.pause();
-    if (_hasVocalUrl) _vocalPlayer.pause();
-    _countdownTimer?.cancel();
-    _isCountingDown = false;
+  // Thiết lập các listener cho Audio Player
+  void _setupAudioListeners() {
+    _beatPlayer.positionStream.listen((position) {
+      if (!_positionStreamController.isClosed) {
+        _positionStreamController.add(position);
+      }
+      // Dừng nếu hát theo đoạn (Section)
+      if (_targetEndTime != null && !_isSwitchingSection && position >= _targetEndTime!) {
+        _stopAtSectionEnd();
+      }
+      // Tự động cuộn lời
+      if (_beatPlayer.playing && !_isUserScrolling && !_isDraggingSeekBar) {
+        _autoScroll(position);
+      }
+    });
 
-    setState(() {
-      _isCompleted = false;
-      _targetEndTime = null;
-      _selectedSectionIndex = -1;
+    _beatPlayer.playerStateStream.listen((state) {
+      // Xử lý khi hát xong
+      if (state.processingState == ProcessingState.completed) {
+        if (_targetEndTime == null) {
+          _handleSongCompletion();
+        }
+      }
+      // Đồng bộ Vocal Player dừng theo Beat Player
+      else if (!state.playing) {
+        if (_hasVocalUrl && _vocalPlayer.playing) {
+          _vocalPlayer.pause();
+        }
+      }
     });
   }
 
-
+  // Cấu hình phiên âm thanh
   Future<void> _initAudioSession() async {
     final session = await AudioSession.instance;
     await session.configure(AudioSessionConfiguration(
       avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
       avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.allowBluetooth |
       AVAudioSessionCategoryOptions.defaultToSpeaker |
-      AVAudioSessionCategoryOptions.mixWithOthers, // Quan trọng: Cho phép trộn
+      AVAudioSessionCategoryOptions.mixWithOthers,
       androidAudioAttributes: const AndroidAudioAttributes(
-        contentType: AndroidAudioContentType.music, // Dùng Music để ưu tiên chất lượng
+        contentType: AndroidAudioContentType.music,
         flags: AndroidAudioFlags.none,
         usage: AndroidAudioUsage.media,
       ),
-      androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransientMayDuck, // Nhường quyền nhưng không tắt
+      androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransientMayDuck,
       androidWillPauseWhenDucked: false,
     ));
   }
 
-  Future<void> _prepareToPlaySection(int index) async {
-    // 1. Bật cờ hiệu "Đang chuyển đoạn" để chặn Listener gây lỗi
-    _isSwitchingSection = true;
+  // ==============================
+  // DATA LOADING & PARSING
+  // ==============================
 
-    _beatPlayer.pause();
-    if (_hasVocalUrl) _vocalPlayer.pause();
-    _countdownTimer?.cancel();
-
-    // Reset UI tạm thời
-    setState(() {
-      _isCompleted = false;
-      _selectedSectionIndex = index;
-      _isUserScrolling = false;
-      _isCountingDown = false;
-      // Tạm thời xóa target cũ để an toàn tuyệt đối
-      _targetEndTime = null;
-    });
-
-    _lastAutoScrollIndex = -1;
-
-    if (index == -1) {
-      // --- CHẾ ĐỘ CẢ BÀI ---
-      await _beatPlayer.seek(Duration.zero);
-      if (_hasVocalUrl) await _vocalPlayer.seek(Duration.zero);
-
-      if (_scrollController.hasClients && _lyrics.isNotEmpty) {
-        _scrollController.scrollToIndex(0, preferPosition: AutoScrollPosition.middle, duration: const Duration(milliseconds: 600));
-      }
-
-      // Xong xuôi thì tắt cờ hiệu và phát
-      _isSwitchingSection = false;
-      _playAfterSetup();
-
-    } else {
-      // --- CHẾ ĐỘ SECTION ---
-      final section = _sections[index];
-
-      // 2. Thực hiện Seek trước (QUAN TRỌNG: Dùng await để đảm bảo vị trí đã thay đổi)
-      await _beatPlayer.seek(section.startTime);
-      if (_hasVocalUrl) await _vocalPlayer.seek(section.startTime);
-
-      // 3. Sau khi Seek xong, mới cập nhật _targetEndTime mới
-      if (mounted) {
-        setState(() {
-          _targetEndTime = section.endTime;
-        });
-
-        // Xử lý cuộn lời
-        int targetLineIndex = _lyrics.indexWhere((line) => line.startTime >= section.startTime.inMilliseconds - 100);
-        if (targetLineIndex == -1) {
-          targetLineIndex = _findActiveLineIndex(section.startTime.inMilliseconds);
-        }
-
-        if (targetLineIndex != -1 && _scrollController.hasClients) {
-          _lastAutoScrollIndex = targetLineIndex;
-          _scrollController.scrollToIndex(
-            targetLineIndex,
-            preferPosition: AutoScrollPosition.middle,
-            duration: const Duration(milliseconds: 800),
-          );
-        }
-      }
-
-      // 4. Tắt cờ hiệu và bắt đầu đếm ngược
-      _isSwitchingSection = false;
-      _startCountdown();
-    }
-  }
-
-  void _startCountdown() {
-    if (!mounted) return;
-    setState(() {
-      _isCountingDown = true;
-      _countdownValue = 3;
-    });
-
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      if (_countdownValue > 1) {
-        setState(() {
-          _countdownValue--;
-        });
-      } else {
-        timer.cancel();
-        setState(() {
-          _isCountingDown = false;
-        });
-        _playAfterSetup();
-      }
-    });
-  }
-
-  void _playAfterSetup() {
-    if (!mounted) return;
-    _beatPlayer.play();
-    if (_hasVocalUrl) _vocalPlayer.play();
-    setState(() => _isCompleted = false);
-  }
-
+  // Tải thông tin bài hát, beat, vocal và lời
   Future<void> _loadData() async {
     try {
       final song = await SongService.instance.getSongDetail(widget.songId);
@@ -299,13 +187,10 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
       if (song.vocalUrl != null && song.vocalUrl!.isNotEmpty) {
         _hasVocalUrl = true;
         setupFutures.add(_vocalPlayer.setUrl(song.vocalUrl!));
-        await _vocalPlayer.setVolume(0.0);
+        await _vocalPlayer.setVolume(_vocalVolume);
       }
-
+      await _beatPlayer.setVolume(_beatVolume);
       await Future.wait(setupFutures);
-
-      _beatPlayer.play();
-      if (_hasVocalUrl) _vocalPlayer.play();
 
       if (song.lyricUrl != null) {
         final response = await http.get(Uri.parse(song.lyricUrl!));
@@ -320,17 +205,24 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
             setState(() {
               _lyrics = parsedLyrics;
               _sections = sections;
+              // Delay nhỏ để tạo hiệu ứng chuyển cảnh mượt từ skeleton sang lời
+              Future.delayed(const Duration(milliseconds: 800), () {
+                if (mounted) setState(() => _isLyricsLoaded = true);
+              });
             });
           }
         }
+      } else {
+        if (mounted) setState(() => _isLyricsLoaded = true);
       }
     } catch (e) {
-      debugPrint("Error: $e");
+      debugPrint("Error loading data: $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  // Tách các thẻ [SECTION] ra khỏi file LRC và trả về nội dung sạch
   static Map<String, dynamic> _parseSectionsAndCleanLrc(String content) {
     final lines = content.split('\n');
     final StringBuffer cleanBuffer = StringBuffer();
@@ -372,23 +264,237 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     return {'content': cleanBuffer.toString(), 'sections': finalSections};
   }
 
-  void _toggleVocal() {
-    if (!_hasVocalUrl) return;
-    setState(() => _isVocalEnabled = !_isVocalEnabled);
-    _vocalPlayer.setVolume(_isVocalEnabled ? 1.0 : 0.0);
+  // ==============================================
+  // SESSION MANAGEMENT (PLAY, PAUSE, RECORD)
+  // ==============================================
+
+  // Xử lý logic nút Play/Pause chính
+  Future<void> _togglePlayPause() async {
+    if (_isCountingDown) return;
+
+    if (!_isSessionStarted) {
+      setState(() => _selectedSectionIndex = -1);
+      await _startFreshSession();
+      return;
+    }
+
+    bool isAtEndOfSection = _selectedSectionIndex != -1 &&
+        _targetEndTime != null &&
+        _beatPlayer.position >= (_targetEndTime! - const Duration(milliseconds: 600));
+
+    if (isAtEndOfSection) {
+      debugPrint("Hết đoạn -> Chuyển sang hát Full bài");
+
+      setState(() {
+        _selectedSectionIndex = -1;
+        _targetEndTime = null;
+        _isCompleted = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Đang phát tiếp phần còn lại..."), duration: Duration(milliseconds: 800))
+      );
+
+      if (_isRecording) {
+        final currentPos = _beatPlayer.position;
+        if (currentPos < (_beatPlayer.duration ?? Duration.zero)) {
+          await _beatPlayer.seek(currentPos + const Duration(milliseconds: 50));
+          if (_hasVocalUrl) await _vocalPlayer.seek(currentPos + const Duration(milliseconds: 50));
+        }
+        await _resumeSession();
+
+      } else {
+        await _startFreshSession(skipSeek: true);
+      }
+      return;
+    }
+
+    if (_beatPlayer.playing) {
+      await _pauseSession();
+    } else {
+      if (_isCompleted) {
+        await _restartSession();
+      } else {
+        await _resumeSession();
+      }
+    }
   }
 
+  // Bắt đầu một phiên thu âm mới từ đầu (hoặc tại vị trí hiện tại nếu skipSeek=true)
+  Future<void> _startFreshSession({bool skipSeek = false}) async {
+    if (await Permission.microphone.request().isDenied) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cần quyền Micro")));
+      return;
+    }
+
+    try {
+      Directory dir;
+      if (Platform.isAndroid) {
+        dir = Directory('/storage/emulated/0/Download/KaraokeTemp');
+      } else {
+        dir = await getApplicationDocumentsDirectory();
+      }
+      if (!await dir.exists()) await dir.create(recursive: true);
+
+      final fileName = 'rec_${DateTime.now().millisecondsSinceEpoch}.wav';
+      final path = '${dir.path}/$fileName';
+      const config = RecordConfig(encoder: AudioEncoder.wav, sampleRate: 44100, numChannels: 1);
+
+      if (_beatPlayer.playing) await _beatPlayer.pause();
+      if (_hasVocalUrl) await _vocalPlayer.pause();
+
+      await _audioRecorder.start(config, path: path);
+      _startRecordTimer(reset: true);
+      await Future.delayed(const Duration(milliseconds: 36));
+
+      setState(() {
+        _isRecording = true;
+        _recordingPath = path;
+        _isSessionStarted = true;
+        _isCompleted = false;
+      });
+
+      if (!skipSeek) {
+        await _beatPlayer.seek(Duration.zero);
+        if (_hasVocalUrl) await _vocalPlayer.seek(Duration.zero);
+      }
+
+      _beatPlayer.play();
+      _beatPlayer.setVolume(_beatVolume);
+      if (_hasVocalUrl) {
+        await _vocalPlayer.seek(_beatPlayer.position);
+        await _vocalPlayer.setVolume(_vocalVolume);
+        _vocalPlayer.play();
+      }
+    } catch (e) {
+      debugPrint("Start Session Error: $e");
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Lỗi: $e")));
+    }
+  }
+
+  // Tạm dừng nhạc và thu âm
+  Future<void> _pauseSession() async {
+    try {
+      await _beatPlayer.pause();
+      if (_hasVocalUrl) await _vocalPlayer.pause();
+      _stopRecordTimer();
+      if (_isRecording) await _audioRecorder.pause();
+      setState(() {});
+    } catch (e) {
+      debugPrint("Pause Error: $e");
+    }
+  }
+
+  // Tiếp tục nhạc và thu âm
+  Future<void> _resumeSession() async {
+    try {
+      if (!_isRecording) {
+        // Nếu file ghi âm bị mất/stop, start file mới tại vị trí hiện tại
+        await _startFreshSession(skipSeek: true);
+        return;
+      }
+      if (await _audioRecorder.isPaused()) {
+        await _audioRecorder.resume();
+        _startRecordTimer(reset: false);
+      }
+      await Future.delayed(const Duration(milliseconds: 36));
+      _beatPlayer.play();
+      if (_hasVocalUrl) {
+        await _vocalPlayer.seek(_beatPlayer.position);
+        await _vocalPlayer.setVolume(_isVocalEnabled ? 1.0 : 0.0);
+        _vocalPlayer.play();
+      }
+    } catch (e) {
+      debugPrint("Resume Error: $e");
+      _beatPlayer.play();
+    }
+  }
+
+  // Reset toàn bộ để hát lại từ đầu
+  Future<void> _restartSession() async {
+    try {
+      await _beatPlayer.stop();
+      if (_hasVocalUrl) _vocalPlayer.stop();
+      if (_isRecording) await _audioRecorder.stop();
+
+      Duration startPosition = Duration.zero;
+      if (_selectedSectionIndex >= 0 && _selectedSectionIndex < _sections.length) {
+        final section = _sections[_selectedSectionIndex];
+        startPosition = section.startTime;
+
+        setState(() {
+          _targetEndTime = section.endTime;
+        });
+      } else {
+        setState(() {
+          _targetEndTime = null;
+        });
+      }
+
+      await _beatPlayer.seek(startPosition);
+      if (_hasVocalUrl) await _vocalPlayer.seek(startPosition);
+
+      setState(() {
+        _isSessionStarted = false;
+        _isRecording = false;
+        _isCompleted = false;
+      });
+      await _startFreshSession(skipSeek: true);
+    } catch (e) {
+      debugPrint("Restart Error: $e");
+    }
+  }
+
+  // Xử lý sự kiện khi bài hát kết thúc tự nhiên
+  Future<void> _handleSongCompletion() async {
+    if (mounted) setState(() => _isCompleted = true);
+    await _pauseSession();
+
+    Duration startPosition = Duration.zero;
+    if (_selectedSectionIndex >= 0 && _selectedSectionIndex < _sections.length) {
+      startPosition = _sections[_selectedSectionIndex].startTime;
+    }
+
+    _beatPlayer.seek(startPosition);
+    if (_hasVocalUrl) _vocalPlayer.seek(startPosition);
+
+    if (_isRecording && _recordingPath != null) {
+      if (mounted) _showRecordingOptionsDialog();
+    }
+    _lastAutoScrollIndex = -1;
+    setState(() {
+      _isUserScrolling = false;
+      _isSessionStarted = false;
+    });
+
+    if (_scrollController.hasClients && _lyrics.isNotEmpty) {
+      int targetIndex = _findActiveLineIndex(startPosition.inMilliseconds);
+      if(targetIndex == -1) targetIndex = 0;
+
+      _scrollController.scrollToIndex(targetIndex, preferPosition: AutoScrollPosition.middle);
+    }
+  }
+
+  // Kết thúc thu âm chủ động (nút Check V)
+  Future<void> _finishRecordingSession() async {
+    await _pauseSession();
+    if (mounted) _showRecordingOptionsDialog();
+  }
+
+  // ================================
+  // NAVIGATION & UI INTERACTION
+  // ================================
+
+  // Xử lý sự kiện tua nhạc (Seek)
   void _performSeek(double value) {
     if (_isCountingDown) return;
     final position = Duration(milliseconds: value.toInt());
 
-    if (_isCompleted) {
-      setState(() => _isCompleted = false);
-    }
+    if (_isCompleted) setState(() => _isCompleted = false);
 
+    // Kiểm tra nếu tua ra ngoài phạm vi Section đang chọn
     if (_selectedSectionIndex != -1) {
       final currentSection = _sections[_selectedSectionIndex];
-      // Nếu kéo ra ngoài phạm vi section (cho phép lệch 1s) -> Thoát chế độ section
       if (position < currentSection.startTime - const Duration(seconds: 1) ||
           position > currentSection.endTime + const Duration(seconds: 1)) {
         setState(() {
@@ -401,16 +507,11 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     _beatPlayer.seek(position);
     if (_hasVocalUrl) _vocalPlayer.seek(position);
 
-    if (_beatPlayer.playing && _hasVocalUrl && _isVocalEnabled) {
-      _vocalPlayer.play();
-    }
-
     _lastAutoScrollIndex = -1;
     setState(() => _isUserScrolling = false);
 
     Future.delayed(const Duration(milliseconds: 100), () {
       if (!mounted) return;
-      // Nếu tua về đầu bài -> Cuộn lên đầu
       if (position < const Duration(seconds: 2) && _lyrics.isNotEmpty) {
         _scrollController.scrollToIndex(0, preferPosition: AutoScrollPosition.middle, duration: const Duration(milliseconds: 300));
       } else {
@@ -419,41 +520,137 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     });
   }
 
-  void _onPlayPause() {
-    if (_isCountingDown) return;
-
-    if (_isCompleted) {
-      // Replay từ đầu
-      setState(() {
-        _isCompleted = false;
-        _targetEndTime = null;
-        _selectedSectionIndex = -1;
-      });
-      _beatPlayer.seek(Duration.zero);
-      if (_hasVocalUrl) _vocalPlayer.seek(Duration.zero);
-      _beatPlayer.play();
-      if (_hasVocalUrl) _vocalPlayer.play();
-      if (_scrollController.hasClients && _lyrics.isNotEmpty) {
-        _scrollController.scrollToIndex(0, preferPosition: AutoScrollPosition.middle);
-      }
-    } else if (_beatPlayer.playing) {
-      _beatPlayer.pause();
-      if (_hasVocalUrl) _vocalPlayer.pause();
-    } else {
-      if (_hasVocalUrl) {
-        _vocalPlayer.seek(_beatPlayer.position);
-        _vocalPlayer.play();
-      }
-      _beatPlayer.play();
+  // Xử lý nút Back trên AppBar
+  Future<void> _onBackPressed() async {
+    if (!_isSessionStarted || _beatPlayer.position.inSeconds < 10) {
+      _discardRecording();
+      widget.onBack();
+      return;
     }
-    setState(() {});
+    await _pauseSession();
+    if (!mounted) return;
+    _showExitConfirmationDialog();
   }
 
+  // Xử lý khi bấm vào các nút chọn đoạn (Section)
+  Future<void> _handleSectionTap(int newIndex) async {
+    // Nếu chuyển từ Đoạn -> Cả bài: Mở rộng phạm vi, không ngắt quãng
+    if (_isSessionStarted && _selectedSectionIndex != -1 && newIndex == -1) {
+      setState(() {
+        _selectedSectionIndex = -1;
+        _targetEndTime = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Đã mở rộng sang chế độ Cả Bài")));
+      return;
+    }
+
+    // Nếu chuyển đoạn khác: Cần hỏi lưu nếu đã hát lâu
+    if (_isSessionStarted && _beatPlayer.position.inSeconds >= 10) {
+      await _pauseSession();
+      if (!mounted) return;
+      _showSwitchSectionDialog(newIndex);
+    } else {
+      if (_isSessionStarted) _discardRecording();
+      _prepareToPlaySection(newIndex);
+    }
+  }
+
+  // Chuẩn bị và chuyển đến đoạn nhạc được chọn
+  Future<void> _prepareToPlaySection(int index) async {
+    setState(() => _isSwitchingSection = true);
+    await _pauseSession();
+    _countdownTimer?.cancel();
+
+    setState(() {
+      _isCompleted = false;
+      _selectedSectionIndex = index;
+      _isUserScrolling = false;
+      _isCountingDown = false;
+      _targetEndTime = null;
+    });
+    _lastAutoScrollIndex = -1;
+
+    const scrollDuration = Duration(milliseconds: 800);
+
+    // Logic Seek và Scroll đến đúng vị trí
+    if (index == -1) {
+      await _beatPlayer.seek(Duration.zero);
+      if (_hasVocalUrl) await _vocalPlayer.seek(Duration.zero);
+      if (_scrollController.hasClients && _lyrics.isNotEmpty) {
+        _scrollController.scrollToIndex(0, preferPosition: AutoScrollPosition.middle, duration: scrollDuration);
+      }
+    } else {
+      final section = _sections[index];
+      await _beatPlayer.seek(section.startTime);
+      if (_hasVocalUrl) await _vocalPlayer.seek(section.startTime);
+
+      if (mounted) setState(() => _targetEndTime = section.endTime);
+
+      int targetLineIndex = _lyrics.indexWhere((line) => line.startTime >= section.startTime.inMilliseconds - 100);
+      if (targetLineIndex == -1) targetLineIndex = _findActiveLineIndex(section.startTime.inMilliseconds);
+
+      if (targetLineIndex != -1 && _scrollController.hasClients) {
+        _lastAutoScrollIndex = targetLineIndex;
+        _scrollController.scrollToIndex(targetLineIndex, preferPosition: AutoScrollPosition.middle, duration: scrollDuration);
+      }
+    }
+
+    await Future.delayed(scrollDuration);
+    if (mounted) {
+      setState(() => _isSwitchingSection = false);
+      _startCountdown();
+    }
+  }
+
+  // Đếm ngược trước khi bắt đầu
+  void _startCountdown() {
+    if (!mounted) return;
+    setState(() {
+      _isCountingDown = true;
+      _countdownValue = 3;
+    });
+
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_countdownValue > 1) {
+        setState(() => _countdownValue--);
+      } else {
+        timer.cancel();
+        setState(() => _isCountingDown = false);
+        if (!_isSessionStarted) {
+          await _startFreshSession(skipSeek: true);
+        } else {
+          await _resumeSession();
+        }
+      }
+    });
+  }
+
+  // Dừng nhạc khi hát hết đoạn (Section)
+  void _stopAtSectionEnd() {
+    _pauseSession();
+    _countdownTimer?.cancel();
+    _isCountingDown = false;
+    setState(() {
+      // _isCompleted = false;
+      // _targetEndTime = null;
+    });
+  }
+
+  // ===========================
+  // SCROLLING & LYRICS LOGIC
+  // ===========================
+
+  // Tìm dòng đang hát
   int _findActiveLineIndex(int currentMs) {
     if (_lyrics.isEmpty) return -1;
     return _lyrics.lastIndexWhere((line) => currentMs >= line.startTime);
   }
 
+  // Cuộn đến dòng đang hát
   void _scrollToCurrentLine() {
     if (_lyrics.isEmpty) return;
     final currentMs = _beatPlayer.position.inMilliseconds;
@@ -469,13 +666,12 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     }
   }
 
+  // Tự động cuộn
   void _autoScroll(Duration position) {
     if (_lyrics.isEmpty) return;
-    // Chặn cuộn khi đang kéo
     if (_isDraggingSeekBar) return;
 
     int currentMs = position.inMilliseconds;
-    // Chặn cuộn ở đoạn Outro để tránh giật
     if (currentMs > _lyrics.last.endTime + 2000) return;
 
     final activeIndex = _findActiveLineIndex(currentMs);
@@ -491,110 +687,197 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     }
   }
 
-  Future<void> _onRecordPressed() async {
-    // --- TRƯỜNG HỢP 1: ĐANG GHI -> DỪNG ---
-    if (_isRecording) {
-      try {
-        // Dừng ghi âm
-        final path = await _audioRecorder.stop();
+  // ===========================
+  // VOLUME & VOCAL CONTROL
+  // ===========================
 
-        // Dừng nhạc
-        _beatPlayer.pause();
-        if (_hasVocalUrl) _vocalPlayer.pause();
-
-        debugPrint("Đã dừng ghi âm. File thô tại: $path");
-
-        if (mounted) _showRecordingOptionsDialog();
-      } catch (e) {
-        debugPrint("Lỗi dừng: $e");
+  // Bật/ tắt tiếng ca sĩ
+  void _toggleVocal() {
+    if (!_hasVocalUrl) return;
+    setState(() {
+      if (_vocalVolume > 0) {
+        _vocalVolume = 0.0;
+        _isVocalEnabled = false;
+      } else {
+        _vocalVolume = _savedVocalVolume;
+        _isVocalEnabled = true;
       }
-    }
-    // --- TRƯỜNG HỢP 2: BẮT ĐẦU GHI ---
-    else {
-      // 1. Xin quyền (Thêm quyền storage nếu Android < 13)
-      Map<Permission, PermissionStatus> statuses = await [
-        Permission.microphone,
-        Permission.storage,
-        Permission.manageExternalStorage, // Thử xin quyền cao nhất nếu máy cho phép
-      ].request();
+    });
+    _vocalPlayer.setVolume(_vocalVolume);
+  }
 
-      if (statuses[Permission.microphone] != PermissionStatus.granted) {
-        return;
+  // Chỉnh âm Beat
+  void _updateBeatVolume(double value) {
+    setState(() => _beatVolume = value);
+    _beatPlayer.setVolume(value);
+  }
+
+  // Chỉnh âm Vocal
+  void _updateVocalVolume(double value) {
+    setState(() {
+      _vocalVolume = value;
+      if (value > 0) {
+        _isVocalEnabled = true;
+        _savedVocalVolume = value;
+      } else {
+        _isVocalEnabled = false;
       }
+    });
+    _vocalPlayer.setVolume(value);
+  }
 
-      try {
-        // 2. Tạo đường dẫn TRỰC TIẾP ra thư mục Download
-        Directory dir;
-        if (Platform.isAndroid) {
-          dir = Directory('/storage/emulated/0/Download/KaraokeTemp');
-        } else {
-          dir = await getApplicationDocumentsDirectory();
-        }
+  // ============================
+  // FILE & RECORDING UTILS
+  // ============================
 
-        if (!await dir.exists()) {
-          await dir.create(recursive: true);
-        }
+  // Bắt đầu thu âm
+  void _startRecordTimer({bool reset = false}) {
+    if (reset) _currentRecDuration = Duration.zero;
+    _recordTimer?.cancel();
+    _recordTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() => _currentRecDuration += const Duration(seconds: 1));
+    });
+  }
 
-        // Dùng đuôi .wav cho an toàn nhất
-        final fileName = 'rec_${DateTime.now().millisecondsSinceEpoch}.wav';
-        final path = '${dir.path}/$fileName';
+  // Dừng thu âm
+  void _stopRecordTimer() {
+    _recordTimer?.cancel();
+    _recordTimer = null;
+  }
 
-        // 3. TẮT NHẠC HOÀN TOÀN TRƯỚC KHI GHI
-        if (_beatPlayer.playing) await _beatPlayer.pause();
-        if (_hasVocalUrl && _vocalPlayer.playing) await _vocalPlayer.pause();
-
-        // 4. Cấu hình WAV
-        const config = RecordConfig(
-          encoder: AudioEncoder.wav,
-          sampleRate: 44100,
-          numChannels: 1,
-          echoCancel: false,
-          noiseSuppress: false,
-          autoGain: false,
-        );
-
-        // 5. Bắt đầu ghi
-        await _audioRecorder.start(config, path: path);
-
-        // CHỜ 1 GIÂY (1000ms) ĐỂ MIC KHỞI ĐỘNG XONG HẲN
-        await Future.delayed(const Duration(milliseconds: 1000));
-
-        setState(() {
-          _isRecording = true;
-          _recordingPath = path;
-        });
-
-        // 6. PHÁT LẠI NHẠC (SỬA ĐOẠN NÀY ĐỂ FIX LỖI MẤT VOCAL)
-
-        // A. Phát Beat trước
-        _beatPlayer.play();
-
-        // B. Xử lý Vocal kỹ hơn
-        if (_hasVocalUrl && _isVocalEnabled) {
-          await _vocalPlayer.seek(_beatPlayer.position);
-
-          await _vocalPlayer.setVolume(1.0);
-
-          // 3. Phát Vocal
-          _vocalPlayer.play();
-        } else if (_hasVocalUrl && !_isVocalEnabled) {
-          await _vocalPlayer.seek(_beatPlayer.position);
-          await _vocalPlayer.setVolume(0.0);
-          _vocalPlayer.play();
-        }
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Đang thu âm")));
-        }
-
-      } catch (e) {
-        debugPrint("Lỗi Start: $e");
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Lỗi: $e")));
-        _beatPlayer.play();
+  // Hủy và xóa file thu âm tạm
+  Future<void> _discardRecording() async {
+    _stopRecordTimer();
+    try {
+      await _audioRecorder.stop();
+      if (_recordingPath != null) {
+        final file = File(_recordingPath!);
+        if (await file.exists()) await file.delete();
       }
+      setState(() {
+        _isRecording = false;
+        _recordingPath = null;
+        _isSessionStarted = false;
+      });
+      // if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Đã hủy bản thu âm")));
+    } catch (e) {
+      debugPrint("Discard Error: $e");
     }
   }
 
+  // Lưu file thu âm vào thư mục chính thức
+  Future<void> _saveRecording(String fileName) async {
+    _stopRecordTimer();
+    try {
+      await _audioRecorder.stop();
+      if (_recordingPath == null) return;
+      final File sourceFile = File(_recordingPath!);
+      if (!await sourceFile.exists()) return;
+
+      final downloadDir = Directory('/storage/emulated/0/Download/KaraokeApp');
+      if (!await downloadDir.exists()) await downloadDir.create(recursive: true);
+
+      String cleanName = fileName.replaceAll(RegExp(r'[^\w\s\-]'), '');
+      final newPath = '${downloadDir.path}/$cleanName.wav';
+
+      await sourceFile.rename(newPath);
+
+      setState(() {
+        _isRecording = false;
+        _recordingPath = newPath;
+        _isSessionStarted = true;
+      });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Đã lưu: $cleanName.wav")));
+    } catch (e) {
+      debugPrint("Save Error: $e");
+    }
+  }
+
+  void _resetUIState() {
+    _lastAutoScrollIndex = -1;
+    setState(() {
+      _selectedSectionIndex = -1;
+      _isUserScrolling = false;
+      _isSessionStarted = false;
+    });
+    if (_scrollController.hasClients && _lyrics.isNotEmpty) {
+      _scrollController.scrollToIndex(0, preferPosition: AutoScrollPosition.middle);
+    }
+  }
+
+  // =======================
+  // DIALOGS & POPUPS
+  // =======================
+
+  // Hiện bảng chỉnh volume
+  void _showVolumeDialog() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.black87,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return StatefulBuilder(
+            builder: (context, setModalState) {
+              return Container(
+                padding: const EdgeInsets.all(20),
+                height: 250,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Center(child: Text("Tuỳ chỉnh âm thanh", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))),
+                    const SizedBox(height: 20),
+                    // Beat Volume
+                    Row(
+                      children: [
+                        const Icon(Icons.music_note, color: Colors.white70),
+                        const SizedBox(width: 10),
+                        const Text("Nhạc nền", style: TextStyle(color: Colors.white)),
+                        Expanded(
+                          child: Slider(
+                            value: _beatVolume,
+                            min: 0.0, max: 1.0,
+                            activeColor: const Color(0xFFFF00CC),
+                            inactiveColor: Colors.white24,
+                            onChanged: (val) {
+                              _updateBeatVolume(val);
+                              setModalState(() {});
+                            },
+                          ),
+                        ),
+                        Text("${(_beatVolume * 100).toInt()}%", style: const TextStyle(color: Colors.white70)),
+                      ],
+                    ),
+                    // Vocal Volume
+                    Row(
+                      children: [
+                        const Icon(Icons.mic, color: Colors.white70),
+                        const SizedBox(width: 10),
+                        const Text("Giọng ca sĩ", style: TextStyle(color: Colors.white)),
+                        Expanded(
+                          child: Slider(
+                            value: _vocalVolume,
+                            min: 0.0, max: 1.0,
+                            activeColor: const Color(0xFFFF00CC),
+                            inactiveColor: Colors.white24,
+                            onChanged: (val) {
+                              _updateVocalVolume(val);
+                              setModalState(() {});
+                            },
+                          ),
+                        ),
+                        Text("${(_vocalVolume * 100).toInt()}%", style: const TextStyle(color: Colors.white70)),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            }
+        );
+      },
+    );
+  }
+
+  // Hiện lựa chọn thu âm
   void _showRecordingOptionsDialog() {
     showDialog(
       context: context,
@@ -602,38 +885,30 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
       builder: (context) {
         return AlertDialog(
           backgroundColor: Colors.grey[900],
-          title: const Text("Tạm dừng thu âm", style: TextStyle(color: Colors.white)),
-          content: const Text(
-            "Bạn muốn làm gì với bản thu này?",
-            style: TextStyle(color: Colors.white70),
-          ),
+          title: const Text("Kết thúc thu âm", style: TextStyle(color: Colors.white)),
+          content: const Text("Bạn muốn lưu bài hát này không?", style: TextStyle(color: Colors.white70)),
           actions: [
-            // NÚT 1: KHÔNG LƯU (Hủy)
             TextButton(
               onPressed: () {
                 Navigator.pop(context);
                 _discardRecording();
               },
-              child: const Text("Không lưu", style: TextStyle(color: Colors.redAccent)),
+              child: const Text("Hủy bỏ", style: TextStyle(color: Colors.redAccent)),
             ),
-
-            // NÚT 2: TIẾP TỤC HÁT
             TextButton(
               onPressed: () {
                 Navigator.pop(context);
-                _resumeRecording();
+                _resumeSession();
               },
-              child: const Text("Tiếp tục hát", style: TextStyle(color: Colors.blueAccent)),
+              child: const Text("Tiếp tục hát", style: TextStyle(color: Colors.white)),
             ),
-
-            // NÚT 3: LƯU
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF00CC)),
               onPressed: () {
                 Navigator.pop(context);
                 _showSaveNameDialog();
               },
-              child: const Text("Lưu", style: TextStyle(color: Colors.white)),
+              child: const Text("Lưu bài", style: TextStyle(color: Colors.white)),
             ),
           ],
         );
@@ -641,9 +916,9 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     );
   }
 
-  void _showSaveNameDialog() {
+  // Đăt tên file lưu
+  void _showSaveNameDialog({bool shouldPopAfterSave = false}) {
     final TextEditingController nameController = TextEditingController();
-
     nameController.text = "${_song?.title ?? 'Record'}_${DateTime.now().hour}${DateTime.now().minute}";
 
     showDialog(
@@ -680,7 +955,9 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
                 final name = nameController.text.trim();
                 if (name.isNotEmpty) {
                   Navigator.pop(context);
-                  _saveRecording(name);
+                  _saveRecording(name).then((_) {
+                    if (shouldPopAfterSave) widget.onBack();
+                  });
                 }
               },
               child: const Text("Xác nhận", style: TextStyle(color: Colors.white)),
@@ -691,105 +968,144 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     );
   }
 
-  // --- LOGIC TIẾP TỤC ---
-  Future<void> _resumeRecording() async {
-    try {
-      await _audioRecorder.resume();
-      _beatPlayer.play();
-      if (_hasVocalUrl && _isVocalEnabled) _vocalPlayer.play();
-    } catch (e) {
-      debugPrint("Lỗi resume: $e");
-    }
+  void _showExitConfirmationDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: const Text("Thoát màn hình?", style: TextStyle(color: Colors.white)),
+        content: const Text("Bạn đang thu âm. Bạn có muốn lưu lại trước khi thoát không?", style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _discardRecording();
+              widget.onBack();
+            },
+            child: const Text("Thoát (Không lưu)", style: TextStyle(color: Colors.redAccent)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF00CC)),
+            onPressed: () {
+              Navigator.pop(context);
+              _showSaveNameDialog(shouldPopAfterSave: true);
+            },
+            child: const Text("Lưu & Thoát", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
-  // --- LOGIC HỦY BỎ ---
-  Future<void> _discardRecording() async {
-    try {
-      await _audioRecorder.stop();
+  void _showSwitchSectionDialog(int newIndex) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: const Text("Đổi đoạn hát?", style: TextStyle(color: Colors.white)),
+        content: const Text("Bạn có muốn lưu bản thu hiện tại trước khi chuyển đoạn không?", style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _discardRecording();
+              _prepareToPlaySection(newIndex);
+            },
+            child: const Text("Không lưu", style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF00CC)),
+            onPressed: () {
+              Navigator.pop(context);
+              _showSaveNameDialogAndThenSwitch(newIndex);
+            },
+            child: const Text("Lưu", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
 
-      // Xóa file tạm
-      if (_recordingPath != null) {
-        final file = File(_recordingPath!);
-        if (await file.exists()) {
-          await file.delete();
-        }
-      }
+  void _showSaveNameDialogAndThenSwitch(int nextSectionIndex) {
+    final TextEditingController nameController = TextEditingController();
+    nameController.text = "${_song?.title ?? 'Rec'}_Section";
+    showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+            backgroundColor: Colors.grey[900],
+            title: const Text("Lưu bản thu", style: TextStyle(color: Colors.white)),
+            content: TextField(
+              controller: nameController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white54)),
+                focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFFFF00CC))),
+              ),
+              autofocus: true,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {Navigator.pop(context);},
+                child: const Text("Quay lại", style: TextStyle(color: Colors.white54)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF00CC)),
+                onPressed: () {
+                  final name = nameController.text.trim();
+                  if (name.isNotEmpty) {
+                    Navigator.pop(context);
+                    _saveRecording(name).then((_) {
+                      _prepareToPlaySection(nextSectionIndex);
+                    });
+                  }
+                },
+                child: const Text("Lưu", style: TextStyle(color: Colors.white)),
+              )
+            ]
+        )
+    );
+  }
 
-      setState(() {
-        _isRecording = false;
-        _recordingPath = null;
-      });
-
-      // Nhạc vẫn dừng, muốn reset nhạc về đầu hay không tùy bạn
-      // _beatPlayer.seek(Duration.zero);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Đã hủy bản thu âm"))
+  // Hát lại từ đầu
+  Future<void> _confirmRestartSession() async {
+    await _pauseSession();
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: Colors.grey[900],
+          title: const Text("Hát lại từ đầu?", style: TextStyle(color: Colors.white)),
+          content: const Text("Bản thu âm hiện tại sẽ bị xóa. Bạn có chắc chắn muốn hát lại không?", style: TextStyle(color: Colors.white70)),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _resumeSession();
+              },
+              child: const Text("Tiếp tục hát", style: TextStyle(color: Colors.white54)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent),
+              onPressed: () {
+                Navigator.pop(context);
+                _restartSession();
+              },
+              child: const Text("Hát lại", style: TextStyle(color: Colors.black)),
+            ),
+          ],
         );
-      }
-    } catch (e) {
-      debugPrint("Lỗi hủy file: $e");
-    }
+      },
+    );
   }
 
-  // --- LOGIC LƯU FILE CHÍNH THỨC ---
-  Future<void> _saveRecording(String fileName) async {
-    try {
-      await _audioRecorder.stop();
-
-      if (_recordingPath == null) {
-        debugPrint("Lỗi: Không tìm thấy đường dẫn file gốc");
-        return;
-      }
-
-      final File sourceFile = File(_recordingPath!);
-      if (!await sourceFile.exists()) {
-        debugPrint("Lỗi: File gốc không tồn tại ở $_recordingPath");
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Lỗi: File ghi âm bị mất!")));
-        return;
-      }
-
-      // Tạo đường dẫn mới
-      final downloadDir = Directory('/storage/emulated/0/Download/KaraokeApp');
-      if (!await downloadDir.exists()) await downloadDir.create(recursive: true);
-
-      String cleanName = fileName.replaceAll(RegExp(r'[^\w\s\-]'), '');
-      final newPath = '${downloadDir.path}/$cleanName.wav';
-
-      // Đổi tên (Move)
-      await sourceFile.rename(newPath);
-
-      setState(() {
-        _isRecording = false;
-        _recordingPath = newPath;
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Đã lưu: $cleanName.wav")));
-      }
-
-    } catch (e) {
-      debugPrint("Lỗi lưu file: $e");
-      try {
-        final sourceFile = File(_recordingPath!);
-        String cleanName = fileName.replaceAll(RegExp(r'[^\w\s\-]'), '');
-        final downloadDir = Directory('/storage/emulated/0/Download/KaraokeApp');
-        final newPath = '${downloadDir.path}/$cleanName.wav';
-
-        await sourceFile.copy(newPath);
-        await sourceFile.delete();
-
-        setState(() {
-          _isRecording = false;
-          _recordingPath = newPath;
-        });
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Đã lưu (copy): $cleanName.wav")));
-      } catch (e2) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Lỗi lưu file: $e2")));
-      }
-    }
-  }
+  // ========================
+  // BUILD METHODS (UI)
+  // ========================
 
   @override
   Widget build(BuildContext context) {
@@ -818,28 +1134,20 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: widget.onBack,
+          onPressed: _onBackPressed,
         ),
         actions: [
           IconButton(
             onPressed: () {
-              setState(() {
-                _isFavorite = !_isFavorite;
-              });
-
-              // (Tuỳ chọn) Hiện thông báo nhỏ cho người dùng biết
+              setState(() => _isFavorite = !_isFavorite);
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(_isFavorite ? "Đã thêm vào yêu thích ❤️" : "Đã bỏ yêu thích"),
-                  duration: const Duration(seconds: 1),
-                ),
+                SnackBar(content: Text(_isFavorite ? "Đã thêm vào yêu thích ❤️" : "Đã bỏ yêu thích"), duration: const Duration(seconds: 1)),
               );
             },
             icon: Icon(
-              _isFavorite ? Icons.favorite : Icons.favorite_outline, // Nếu True thì tim đặc, False thì tim rỗng
-              color: _isFavorite ? Colors.red : Colors.white,        // Nếu True thì màu đỏ, False thì màu trắng
+              _isFavorite ? Icons.favorite : Icons.favorite_outline,
+              color: _isFavorite ? Colors.red : Colors.white,
             ),
-            tooltip: _isFavorite ? "Bỏ thích" : "Yêu thích",
           ),
           const SizedBox(width: 8),
         ],
@@ -911,7 +1219,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
           return GestureDetector(
             onTap: () {
               if (isSelected) return;
-              _prepareToPlaySection(isFullSongBtn ? -1 : actualSectionIndex);
+              _handleSectionTap(isFullSongBtn ? -1 : actualSectionIndex);
             },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 300),
@@ -937,6 +1245,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   }
 
   Widget _buildLyricSection() {
+    if (!_isLyricsLoaded) return const Center(child: SkeletonLoadingEffect());
     if (_lyrics.isEmpty) {
       if (_isLoading) return const Center(child: CircularProgressIndicator(color: Color(0xFFFF00CC)));
       return const Center(child: Text("Chưa có lời bài hát", style: TextStyle(color: Colors.white54)));
@@ -948,15 +1257,14 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
       builder: (context, snapshot) {
         final position = snapshot.data ?? Duration.zero;
         final currentMs = position.inMilliseconds + _syncOffset;
-
         int activeIndex = _findActiveLineIndex(currentMs);
         bool highlightActiveLine = true;
+
         if (activeIndex != -1 && activeIndex < _lyrics.length) {
           final currentLine = _lyrics[activeIndex];
           if (currentMs > currentLine.endTime + 5000) {
             if (activeIndex + 1 < _lyrics.length) {
-              final nextLine = _lyrics[activeIndex + 1];
-              if (currentMs < nextLine.startTime) highlightActiveLine = false;
+              if (currentMs < _lyrics[activeIndex + 1].startTime) highlightActiveLine = false;
             } else {
               highlightActiveLine = false;
             }
@@ -965,26 +1273,21 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
         return NotificationListener<ScrollNotification>(
           onNotification: (notification) {
-            if (notification is ScrollStartNotification) {
-              if (notification.dragDetails != null) {
-                _isUserScrolling = true;
-                _userScrollTimeoutTimer?.cancel();
-              }
-            } else if (notification is ScrollEndNotification) {
-              if (_isUserScrolling) {
-                _userScrollTimeoutTimer = Timer(const Duration(seconds: 2), () {
-                  if (mounted) {
-                    setState(() => _isUserScrolling = false);
-                    _scrollToCurrentLine();
-                  }
-                });
-              }
+            if (notification is ScrollStartNotification && notification.dragDetails != null) {
+              _isUserScrolling = true;
+              _userScrollTimeoutTimer?.cancel();
+            } else if (notification is ScrollEndNotification && _isUserScrolling) {
+              _userScrollTimeoutTimer = Timer(const Duration(seconds: 2), () {
+                if (mounted) {
+                  setState(() => _isUserScrolling = false);
+                  _scrollToCurrentLine();
+                }
+              });
             }
             return false;
           },
           child: ListView.builder(
             controller: _scrollController,
-            // Giữ padding lớn đáy để tránh lỗi giật
             padding: EdgeInsets.fromLTRB(20, 40, 20, MediaQuery.of(context).size.height * 0.6),
             itemCount: _lyrics.length,
             physics: const BouncingScrollPhysics(),
@@ -994,12 +1297,12 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
               int? countdownValue;
               int timeUntilStart = line.startTime - currentMs;
               if (timeUntilStart > 0 && timeUntilStart <= 4000) {
-                if (index == 0) countdownValue = (timeUntilStart / 1000).ceil();
-                else {
-                  final prevLine = _lyrics[index - 1];
-                  if (line.startTime - prevLine.endTime >= 10000) countdownValue = (timeUntilStart / 1000).ceil();
+                if (index == 0){
+                  countdownValue = (timeUntilStart / 1000).ceil();
+                } else {
+                  if (line.startTime - _lyrics[index - 1].endTime >= 10000) countdownValue = (timeUntilStart / 1000).ceil();
                 }
-                if (countdownValue != null && countdownValue! > 3) countdownValue = null;
+                if (countdownValue != null && countdownValue > 3) countdownValue = null;
               }
               bool isFastFlow = false;
               if (index < _lyrics.length - 1) {
@@ -1028,6 +1331,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   }
 
   Widget _buildControls() {
+    if (!_isLyricsLoaded) return const ControlsSkeleton();
     return StreamBuilder<Duration?>(
       stream: _beatPlayer.durationStream,
       builder: (context, snapshotDuration) {
@@ -1037,11 +1341,9 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
           builder: (context, snapshotPosition) {
             var position = snapshotPosition.data ?? Duration.zero;
             if (position > duration) position = duration;
-
             IconData playIcon = Icons.play_arrow;
             if (_isCompleted) playIcon = Icons.replay;
             else if (_beatPlayer.playing) playIcon = Icons.pause;
-
             final displayPosition = _isDraggingSeekBar ? Duration(milliseconds: _dragValue!.toInt()) : position;
 
             return Padding(
@@ -1061,22 +1363,10 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
                     child: Slider(
                       value: _isDraggingSeekBar ? _dragValue! : position.inMilliseconds.toDouble().clamp(0.0, duration.inMilliseconds.toDouble() > 0 ? duration.inMilliseconds.toDouble() : 0.0),
                       max: duration.inMilliseconds.toDouble() > 0 ? duration.inMilliseconds.toDouble() : 1.0,
-                      onChangeStart: (value) {
-                        setState(() {
-                          _isDraggingSeekBar = true;
-                          _dragValue = value;
-                        });
-                      },
-                      onChanged: (value) {
-                        setState(() {
-                          _dragValue = value;
-                        });
-                      },
+                      onChangeStart: (value) => setState(() { _isDraggingSeekBar = true; _dragValue = value; }),
+                      onChanged: (value) => setState(() => _dragValue = value),
                       onChangeEnd: (value) {
-                        setState(() {
-                          _isDraggingSeekBar = false;
-                          _dragValue = null;
-                        });
+                        setState(() { _isDraggingSeekBar = false; _dragValue = null; });
                         _performSeek(value);
                       },
                     ),
@@ -1092,29 +1382,42 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      IconButton(
-                        onPressed: _onRecordPressed,
-                        iconSize: 30,
-                        tooltip: _isRecording ? "Dừng thu âm" : "Bắt đầu thu âm",
-                        icon: _isRecording
-                            ? const Icon(Icons.stop_circle_rounded, color: Colors.redAccent)
-                            : const Icon(Icons.mic_none_rounded, color: Colors.white54),
-                      ),
-                      IconButton(onPressed: () {}, iconSize: 40, icon: const Icon(Icons.skip_previous_rounded, color: Colors.white)),
+                      if (_isSessionStarted)
+                        IconButton(onPressed: _confirmRestartSession, iconSize: 30, tooltip: "Hát lại từ đầu", icon: const Icon(Icons.refresh_rounded, color: Colors.orangeAccent))
+                      else const SizedBox(width: 48),
+
+                      IconButton(onPressed: _showVolumeDialog, iconSize: 30, tooltip: "Chỉnh âm lượng", icon: const Icon(Icons.tune_rounded, color: Colors.white)),
+
                       GestureDetector(
-                        onTap: _onPlayPause,
+                        onTap: _isSwitchingSection ? null : _togglePlayPause,
                         child: Container(
                           width: 70, height: 70,
                           decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFFFF00CC), boxShadow: [BoxShadow(color: Color(0x66FF00CC), blurRadius: 20, spreadRadius: 2)]),
-                          child: Icon(playIcon, color: Colors.white, size: 38),
+                          child: Center(
+                            child: _isSwitchingSection
+                                ? const SizedBox(width: 30, height: 30, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
+                                : Icon(!_isSessionStarted ? Icons.fiber_manual_record_rounded : playIcon, color: Colors.white, size: !_isSessionStarted ? 45 : 38),
+                          ),
                         ),
                       ),
-                      IconButton(onPressed: () {}, iconSize: 40, icon: const Icon(Icons.skip_next_rounded, color: Colors.white)),
+
+                      if (_isSessionStarted)
+                        Builder(builder: (context) {
+                          final bool canSave = _currentRecDuration.inSeconds >= 10;
+                          return IconButton(
+                            onPressed: canSave ? _finishRecordingSession : null,
+                            iconSize: 40,
+                            tooltip: canSave ? "Kết thúc & Lưu (${_formatTime(_currentRecDuration)})" : "Cần thu thêm ${10 - _currentRecDuration.inSeconds}s",
+                            icon: Icon(Icons.check_circle_rounded, color: canSave ? Colors.greenAccent : Colors.white24),
+                          );
+                        })
+                      else const SizedBox(width: 48),
+
                       IconButton(
                         onPressed: _toggleVocal,
                         iconSize: 28,
                         tooltip: "Bật/Tắt lời ca sĩ",
-                        icon: Icon(Icons.record_voice_over, color: _isVocalEnabled ? const Color(0xFFFF00CC) : Colors.white54),
+                        icon: Icon(Icons.record_voice_over, color: _vocalVolume > 0 ? const Color(0xFFFF00CC) : Colors.white54),
                       ),
                     ],
                   ),
@@ -1129,13 +1432,14 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   String _formatTime(Duration d) {
     String twoDigits(int n) => n.toString().padLeft(2, "0");
-    final minutes = twoDigits(d.inMinutes.remainder(60));
-    final seconds = twoDigits(d.inSeconds.remainder(60));
-    return "$minutes:$seconds";
+    return "${twoDigits(d.inMinutes.remainder(60))}:${twoDigits(d.inSeconds.remainder(60))}";
   }
 }
 
-// --- CLASS KaraokeLineItem GIỮ NGUYÊN ---
+// =====================
+// HELPER WIDGETS
+// =====================
+
 class KaraokeLineItem extends StatelessWidget {
   final LyricLine line;
   final int currentPositionMs;
@@ -1291,6 +1595,88 @@ class KaraokeLineItem extends StatelessWidget {
       child: Text(
         word.text,
         style: style.copyWith(color: Colors.white),
+      ),
+    );
+  }
+}
+
+class SkeletonLoadingEffect extends StatefulWidget {
+  const SkeletonLoadingEffect({Key? key}) : super(key: key);
+
+  @override
+  _SkeletonLoadingEffectState createState() => _SkeletonLoadingEffectState();
+}
+
+class _SkeletonLoadingEffectState extends State<SkeletonLoadingEffect>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+      lowerBound: 0.3,
+      upperBound: 0.7,
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _controller,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: List.generate(6, (index) =>
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 40),
+              height: 20,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              width: double.infinity,
+            )
+        ),
+      ),
+    );
+  }
+}
+
+class ControlsSkeleton extends StatelessWidget {
+  const ControlsSkeleton({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        children: [
+          Container(
+            height: 4,
+            width: double.infinity,
+            color: Colors.white12,
+            margin: const EdgeInsets.symmetric(vertical: 20),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              CircleAvatar(radius: 15, backgroundColor: Colors.white10),
+              CircleAvatar(radius: 15, backgroundColor: Colors.white10),
+              Container(width: 70, height: 70, decoration: const BoxDecoration(color: Colors.white10, shape: BoxShape.circle)),
+              CircleAvatar(radius: 20, backgroundColor: Colors.white10),
+              CircleAvatar(radius: 14, backgroundColor: Colors.white10),
+            ],
+          )
+        ],
       ),
     );
   }
