@@ -3,11 +3,17 @@ import 'package:shimmer/shimmer.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/user_service.dart';
 import '../../../models/user_model.dart';
+import 'follow_list_screen.dart';
+import 'edit_profile_screen.dart';
+import 'setting_screen.dart';
+import 'policy_and_support_screen.dart';
+import 'review_app_screen.dart';
+
 
 class MeScreen extends StatefulWidget {
   final VoidCallback onLogoutClick;
 
-  const MeScreen({Key? key, required this.onLogoutClick}) : super(key: key);
+  const MeScreen({super.key, required this.onLogoutClick});
 
   @override
   State<MeScreen> createState() => _MeScreenState();
@@ -163,13 +169,53 @@ class _MeScreenState extends State<MeScreen> {
 
         Expanded(
           child: _isGuest
-              ? const Center(child: Text("Đăng nhập để xem thống kê", style: TextStyle(color: Colors.grey)))
+              ? const Center(
+              child: Text("Đăng nhập để xem thống kê",
+                  style: TextStyle(color: Colors.grey)))
               : Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _buildStatItem(_userProfile?.followingCount.toString() ?? "0", "Đang follow"),
-              _buildStatItem(_userProfile?.followersCount.toString() ?? "0", "Follower"),
-              _buildStatItem(_userProfile?.likesCount.toString() ?? "0", "Thích"),
+              _buildStatItem(
+                _userProfile?.followingCount.toString() ?? "0",
+                "Đang follow",
+                onTap: () {
+                  if (_userProfile != null) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => FollowListScreen(
+                          targetUser: _userProfile!,
+                          initialTabIndex: 0,
+                        ),
+                      ),
+                    );
+                  }
+                },
+              ),
+
+              _buildStatItem(
+                _userProfile?.followersCount.toString() ?? "0",
+                "Follower",
+                onTap: () {
+                  if (_userProfile != null) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => FollowListScreen(
+                          targetUser: _userProfile!,
+                          initialTabIndex: 1,
+                        ),
+                      ),
+                    );
+                  }
+                },
+              ),
+
+              _buildStatItem(
+                _userProfile?.likesCount.toString() ?? "0",
+                "Thích",
+                onTap: null,
+              ),
             ],
           ),
         ),
@@ -177,13 +223,20 @@ class _MeScreenState extends State<MeScreen> {
     );
   }
 
-  Widget _buildStatItem(String count, String label) {
-    return Column(
-      children: [
-        Text(count, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-      ],
+  Widget _buildStatItem(String count, String label, {VoidCallback? onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        child: Column(
+          children: [
+            Text(count, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+        ),
+      ),
     );
   }
 
@@ -215,7 +268,6 @@ class _MeScreenState extends State<MeScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          // Bio
           Text(
             _userProfile?.bio != null && _userProfile!.bio!.isNotEmpty
                 ? _userProfile!.bio!
@@ -230,14 +282,17 @@ class _MeScreenState extends State<MeScreen> {
     );
   }
 
-  // 3. EDIT BUTTON
+  // --- EDIT BUTTON ---
   Widget _buildEditButton() {
     return SizedBox(
       width: double.infinity,
       height: 36,
       child: OutlinedButton(
         onPressed: () {
-          // Navigator.pushNamed(context, '/edit_profile');
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const EditProfileScreen()),
+          );
         },
         style: OutlinedButton.styleFrom(
           side: BorderSide(color: Colors.grey.shade400),
@@ -248,7 +303,7 @@ class _MeScreenState extends State<MeScreen> {
     );
   }
 
-  // 4. MENU BUTTONS
+  // --- MENU BUTTONS ---
   Widget _buildMenuButtons() {
     return Column(
       children: [
@@ -258,10 +313,29 @@ class _MeScreenState extends State<MeScreen> {
           const Divider(),
         ],
 
-        _buildMenuRow(Icons.settings_outlined, "Cài đặt", () {}),
-        _buildMenuRow(Icons.help_outline, "Hỗ trợ", () {}),
+        // 1. Cài đặt
+        _buildMenuRow(Icons.settings_outlined, "Cài đặt", () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const SettingScreen()),
+          );
+        }),
 
-        const SizedBox(height: 20),
+        // 2. Chính sách & Hỗ trợ
+        _buildMenuRow(Icons.help_outline, "Chính sách & Hỗ trợ", () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const PolicyAndSupportScreen()),
+          );
+        }),
+
+        // 3. Đánh giá
+        _buildMenuRow(Icons.star_outline, "Đánh giá", () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const ReviewAppScreen()),
+          );
+        }),
 
         // Nút Đăng xuất / Đăng nhập
         ListTile(

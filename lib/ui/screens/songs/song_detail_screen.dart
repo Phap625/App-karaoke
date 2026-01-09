@@ -14,6 +14,8 @@ import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:audio_session/audio_session.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:universal_html/html.dart' as html;
 
 import '../../../models/song_model.dart';
 import '../../../services/song_service.dart';
@@ -126,6 +128,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Thiết lập các listener cho Audio Player
   void _setupAudioListeners() {
+    debugPrint("Chạy hàm _setupAudioListeners");
     _beatPlayer.positionStream.listen((position) {
       if (!_positionStreamController.isClosed) {
         _positionStreamController.add(position);
@@ -172,6 +175,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   }
 
   void _startBufferingWatchdog() {
+    debugPrint("Chạy hàm _startBufferingWatchdog");
     _bufferingWatchdog?.cancel();
     _bufferingWatchdog = Timer(const Duration(seconds: 10), () async {
       if (_beatPlayer.processingState == ProcessingState.buffering ||
@@ -183,6 +187,8 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   }
 
   Future<bool> _hasInternet() async {
+    debugPrint("Chạy hàm _hasInternet");
+    if (kIsWeb) return true;
     try {
       final result = await InternetAddress.lookup('google.com');
       return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
@@ -193,20 +199,27 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Cấu hình phiên âm thanh
   Future<void> _initAudioSession() async {
-    final session = await AudioSession.instance;
-    await session.configure(AudioSessionConfiguration(
-      avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
-      avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.allowBluetooth |
-      AVAudioSessionCategoryOptions.defaultToSpeaker |
-      AVAudioSessionCategoryOptions.mixWithOthers,
-      androidAudioAttributes: const AndroidAudioAttributes(
-        contentType: AndroidAudioContentType.music,
-        flags: AndroidAudioFlags.none,
-        usage: AndroidAudioUsage.media,
-      ),
-      androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransientMayDuck,
-      androidWillPauseWhenDucked: false,
-    ));
+    debugPrint("Chạy hàm _initAudioSession");
+    if (kIsWeb) return;
+    try {
+      final session = await AudioSession.instance;
+      await session.configure(AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+        avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.allowBluetooth |
+        AVAudioSessionCategoryOptions.defaultToSpeaker |
+        AVAudioSessionCategoryOptions.mixWithOthers,
+        androidAudioAttributes: const AndroidAudioAttributes(
+          contentType: AndroidAudioContentType.music,
+          flags: AndroidAudioFlags.none,
+          usage: AndroidAudioUsage.media,
+        ),
+        androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransientMayDuck,
+        androidWillPauseWhenDucked: false,
+      ));
+      debugPrint("✅ Cấu hình AudioSession thành công");
+    } catch (e) {
+      debugPrint("⚠️ Lỗi cấu hình AudioSession: $e");
+    }
   }
 
   // ==============================
@@ -215,6 +228,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Tải thông tin bài hát, beat, vocal và lời
   Future<void> _loadData() async {
+    debugPrint("Chạy hàm _loadData");
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -308,6 +322,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   }
 
   String _getFriendlyErrorMessage(dynamic error) {
+    debugPrint("Chạy hàm _getFriendlyErrorMessage");
     String msg = error.toString();
     String lowerMsg = msg.toLowerCase();
 
@@ -326,6 +341,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   }
 
   Future<void> _handlePlaybackError(dynamic error) async {
+    debugPrint("Chạy hàm _handlePlaybackError");
     await _pauseSession();
 
     String errorMsg = _getFriendlyErrorMessage(error);
@@ -348,6 +364,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Tách các thẻ [SECTION] ra khỏi file LRC và trả về nội dung sạch
   static Map<String, dynamic> _parseSectionsAndCleanLrc(String content) {
+    debugPrint("Chạy hàm _parseSectionsAndClearLrc");
     final lines = content.split('\n');
     final StringBuffer cleanBuffer = StringBuffer();
     final Map<String, Duration> tempStarts = {};
@@ -394,6 +411,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Xử lý logic nút Play/Pause chính
   Future<void> _togglePlayPause() async {
+    debugPrint("Chạy hàm _togglePlayPause");
     if (_isCountingDown) return;
 
     if (!_beatPlayer.playing) {
@@ -454,35 +472,60 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Bắt đầu một phiên thu âm mới từ đầu (hoặc tại vị trí hiện tại nếu skipSeek=true)
   Future<void> _startFreshSession({bool skipSeek = false}) async {
+    debugPrint("Chạy hàm startFreshSession");
     bool hasNet = await _hasInternet();
     if (!hasNet) {
       _handlePlaybackError(Exception("Mất kết nối Internet. Không thể bắt đầu."));
       return;
     }
-    if (await Permission.microphone.request().isDenied) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cần quyền Micro")));
-      return;
+
+    if (!kIsWeb) {
+      if (await Permission.microphone.request().isDenied) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cần quyền Micro")));
+        return;
+      }
     }
 
     try {
-      Directory dir;
-      if (Platform.isAndroid) {
-        dir = Directory('/storage/emulated/0/Download/KaraokeTemp');
-      } else {
-        dir = await getApplicationDocumentsDirectory();
-      }
-      if (!await dir.exists()) await dir.create(recursive: true);
+      String path = '';
 
-      final fileName = 'rec_${DateTime.now().millisecondsSinceEpoch}.wav';
-      final path = '${dir.path}/$fileName';
-      const config = RecordConfig(encoder: AudioEncoder.wav, sampleRate: 44100, numChannels: 1);
+      if (kIsWeb) {
+        path = ''; // Web bắt buộc để rỗng để lưu vào RAM/Blob
+      } else {
+        final dir = await getApplicationDocumentsDirectory();
+        if (!await dir.exists()) await dir.create(recursive: true);
+
+        final fileName = 'rec_${DateTime.now().millisecondsSinceEpoch}.wav';
+        path = '${dir.path}/$fileName';
+      }
+
+      RecordConfig config;
+
+      if (kIsWeb) {
+        config = const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          sampleRate: 44100,
+          numChannels: 1,
+          echoCancel: false,
+          noiseSuppress: false,
+          autoGain: false,
+        );
+      } else {
+        config = const RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: 44100,
+          numChannels: 1,
+        );
+      }
 
       if (_beatPlayer.playing) await _beatPlayer.pause();
       if (_hasVocalUrl) await _vocalPlayer.pause();
 
       await _audioRecorder.start(config, path: path);
+
       _startRecordTimer(reset: true);
-      await Future.delayed(const Duration(milliseconds: 36));
+
+      await Future.delayed(const Duration(milliseconds: 100));
 
       setState(() {
         _isRecording = true;
@@ -492,7 +535,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
       });
 
       if (!skipSeek) {
-        await _beatPlayer.seek(Duration.zero).timeout(const Duration(seconds: 5));;
+        await _beatPlayer.seek(Duration.zero).timeout(const Duration(seconds: 10));
         if (_hasVocalUrl) await _vocalPlayer.seek(Duration.zero);
       }
 
@@ -503,14 +546,22 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
         await _vocalPlayer.setVolume(_vocalVolume);
         _vocalPlayer.play();
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint("Start Session Error: $e");
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Lỗi: $e")));
+      debugPrint("Stack: $stackTrace");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text("Lỗi khởi tạo thu âm: $e"),
+          duration: const Duration(seconds: 5),
+          backgroundColor: Colors.red,
+        ));
+      }
     }
   }
 
   // Tạm dừng nhạc và thu âm
   Future<void> _pauseSession() async {
+    debugPrint("Chạy hàm _pauseSession");
     try {
       await _beatPlayer.pause();
       if (_hasVocalUrl) await _vocalPlayer.pause();
@@ -524,6 +575,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Tiếp tục nhạc và thu âm
   Future<void> _resumeSession() async {
+    debugPrint("Chạy hàm _resumeSession");
     try {
       if (_targetEndTime != null) {
         final currentPos = _beatPlayer.position;
@@ -571,6 +623,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Reset toàn bộ để hát lại từ đầu
   Future<void> _restartSession() async {
+    debugPrint("Chạy hàm _restartSession");
     try {
       await _beatPlayer.stop();
       if (_hasVocalUrl) _vocalPlayer.stop();
@@ -622,6 +675,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Xử lý sự kiện khi bài hát kết thúc tự nhiên
   Future<void> _handleSongCompletion() async {
+    debugPrint("Chạy hàm _handleSongCompletion");
     if (_isHandlingCompletion || _isCompleted) return;
 
     _isHandlingCompletion = true;
@@ -658,6 +712,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Kết thúc thu âm chủ động (nút Check V)
   Future<void> _finishRecordingSession() async {
+    debugPrint("Chạy hàm _finishRecordingSession");
     await _pauseSession();
     if (mounted) _showRecordingOptionsDialog(allowContinue: true);
   }
@@ -668,6 +723,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Xử lý sự kiện tua nhạc (Seek)
   void _performSeek(double value) async {
+    debugPrint("Chạy hàm _performSeek");
     if (_isCountingDown) return;
 
     bool hasNet = await _hasInternet();
@@ -709,8 +765,14 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Xử lý nút Back trên AppBar
   Future<void> _onBackPressed() async {
-    if (!_isSessionStarted || _beatPlayer.position.inSeconds < 10) {
+    debugPrint("Chạy hàm _onBackPressed");
+    if (!_isRecording) {
       _discardRecording();
+      widget.onBack();
+      return;
+    }
+    if (_currentRecDuration.inSeconds < 10) {
+      await _discardRecording();
       widget.onBack();
       return;
     }
@@ -721,6 +783,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Xử lý khi bấm vào các nút chọn đoạn (Section)
   Future<void> _handleSectionTap(int newIndex) async {
+    debugPrint("Chạy hàm _handleSectionTap");
     // Nếu chuyển từ Đoạn -> Cả bài: Mở rộng phạm vi, không ngắt quãng
     if (_isSessionStarted && _selectedSectionIndex != -1 && newIndex == -1) {
       setState(() {
@@ -732,7 +795,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     }
 
     // Nếu chuyển đoạn khác: Cần hỏi lưu nếu đã hát lâu
-    if (_isSessionStarted && _beatPlayer.position.inSeconds >= 10) {
+    if (_isRecording && _currentRecDuration.inSeconds >= 10) {
       await _pauseSession();
       if (!mounted) return;
       _showSwitchSectionDialog(newIndex);
@@ -744,6 +807,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Chuẩn bị và chuyển đến đoạn nhạc được chọn
   Future<void> _prepareToPlaySection(int index) async {
+    debugPrint("Chạy hàm _prepareToPlaySection");
     bool hasNet = await _hasInternet();
     if (!hasNet) {
       _handlePlaybackError(Exception("Không có kết nối Internet để tải nhạc."));
@@ -834,6 +898,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Đếm ngược trước khi bắt đầu
   void _startCountdown() {
+    debugPrint("Chạy hàm _startCountdown");
     if (!mounted) return;
     setState(() {
       _isCountingDown = true;
@@ -861,6 +926,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Dừng nhạc khi hát hết đoạn (Section)
   void _stopAtSectionEnd() {
+    debugPrint("Chạy hàm _stopAtSectionEnd");
     _pauseSession();
     _countdownTimer?.cancel();
     _isCountingDown = false;
@@ -962,6 +1028,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Bắt đầu thu âm
   void _startRecordTimer({bool reset = false}) {
+    debugPrint("Chạy hàm _startRecordTimer");
     if (reset) _currentRecDuration = Duration.zero;
     _recordTimer?.cancel();
     _recordTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -971,18 +1038,24 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Dừng thu âm
   void _stopRecordTimer() {
+    debugPrint("Chạy hàm _stopRecordTimer");
     _recordTimer?.cancel();
     _recordTimer = null;
   }
 
   // Hủy và xóa file thu âm tạm
   Future<void> _discardRecording() async {
+    debugPrint("Chạy hàm _discardRecording");
     _stopRecordTimer();
     try {
       await _audioRecorder.stop();
-      if (_recordingPath != null) {
+
+      if (!kIsWeb && _recordingPath != null && _recordingPath!.isNotEmpty) {
         final file = File(_recordingPath!);
-        if (await file.exists()) await file.delete();
+        if (await file.exists()) {
+          await file.delete();
+          debugPrint("Đã xóa file tạm trên bộ nhớ máy.");
+        }
       }
       setState(() {
         _isRecording = false;
@@ -997,43 +1070,54 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Lưu file thu âm vào thư mục chính thức
   Future<void> _saveRecording(String fileName) async {
+    debugPrint("Chạy hàm _saveRecording");
     _stopRecordTimer();
+    String cleanName = fileName.replaceAll(RegExp(r'[^\w\s\-]'), '');
+    if (cleanName.isEmpty) cleanName = "recording_${DateTime.now().millisecondsSinceEpoch}";
     try {
-      await _audioRecorder.stop();
-      if (_recordingPath == null) return;
-      final File sourceFile = File(_recordingPath!);
-      if (!await sourceFile.exists()) return;
+      final String? path = await _audioRecorder.stop();
 
-      final downloadDir = Directory('/storage/emulated/0/Download/KaraokeApp');
-      if (!await downloadDir.exists()) await downloadDir.create(recursive: true);
+      if (path == null) return;
 
-      String cleanName = fileName.replaceAll(RegExp(r'[^\w\s\-]'), '');
-      final newPath = '${downloadDir.path}/$cleanName.wav';
+      if (kIsWeb) {
+        final anchor = html.AnchorElement(href: path);
+        anchor.download = "$cleanName.m4a";
 
-      await sourceFile.rename(newPath);
+        anchor.style.display = 'none';
+        html.document.body?.children.add(anchor);
+        anchor.click();
+        html.document.body?.children.remove(anchor);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text("Đang tải xuống: $cleanName.m4a"))
+          );
+        }
+      } else {
+        final File sourceFile = File(path);
+        if (!await sourceFile.exists()) return;
+
+        final downloadDir = Directory('/storage/emulated/0/Download/KaraokeApp');
+        if (!await downloadDir.exists()) await downloadDir.create(recursive: true);
+
+        String cleanName = fileName.replaceAll(RegExp(r'[^\w\s\-]'), '');
+        final newPath = '${downloadDir.path}/$cleanName.wav';
+
+        await sourceFile.copy(newPath);
+        await sourceFile.delete();
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Đã lưu: $cleanName.wav")));
+      }
 
       setState(() {
         _isRecording = false;
-        _recordingPath = newPath;
-        _isSessionStarted = true;
+        _recordingPath = null;
+        _currentRecDuration = Duration.zero;
       });
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Đã lưu: $cleanName.wav")));
+
     } catch (e) {
       debugPrint("Save Error: $e");
     }
   }
-
-  // void _resetUIState() {
-  //   _lastAutoScrollIndex = -1;
-  //   setState(() {
-  //     _selectedSectionIndex = -1;
-  //     _isUserScrolling = false;
-  //     _isSessionStarted = false;
-  //   });
-  //   if (_scrollController.hasClients && _lyrics.isNotEmpty) {
-  //     _scrollController.scrollToIndex(0, preferPosition: AutoScrollPosition.middle);
-  //   }
-  // }
 
   // =======================
   // DIALOGS & POPUPS
@@ -1411,6 +1495,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   // Hát lại từ đầu
   Future<void> _confirmRestartSession() async {
+    debugPrint("Chạy hàm _confirmRestartSession");
     await _pauseSession();
     if (!mounted) return;
     showDialog(

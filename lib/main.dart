@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:onesignal_flutter/onesignal_flutter.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 // Import các màn hình
 import 'ui/screens/auth/login_screen.dart';
@@ -27,6 +29,11 @@ void main() async {
     url: 'https://wvmulnuypsovlvlnmxxi.supabase.co',
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind2bXVsbnV5cHNvdmx2bG5teHhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUzMjAwNjAsImV4cCI6MjA4MDg5NjA2MH0.viLyy9wbJiQhfyJb-HNocsgZ1aMIsKGe4y4PJsg907U',
   );
+  if (!kIsWeb) {
+    OneSignal.Debug.setLogLevel(OSLogLevel.verbose);
+    OneSignal.initialize("a69cad20-c2e6-4d0c-88ff-bd86361148d9");
+    OneSignal.Notifications.requestPermission(true);
+  }
 
   runApp(
     MultiProvider(

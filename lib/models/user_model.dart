@@ -60,6 +60,22 @@ class UserModel {
     );
   }
 
+  // Dùng cho comment screen
+  factory UserModel.fromComment(Map<String, dynamic> json) {
+    return UserModel(
+      id: json['id'] as String,
+      fullName: json['full_name'] as String?,
+      username: json['username'] as String?,
+      avatarUrl: json['avatar_url'] as String?,
+      role: json['role'] as String? ?? 'user',
+      email: null,
+      bio: null,
+      followersCount: 0,
+      followingCount: 0,
+      likesCount: 0,
+    );
+  }
+
   // --- DÙNG CHO VIEW 'friends_view' ---
   factory UserModel.fromFriendView(Map<String, dynamic> json) {
     return UserModel(

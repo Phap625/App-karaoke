@@ -1,6 +1,6 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../main.dart';
 
 class BaseService {
@@ -12,14 +12,14 @@ class BaseService {
         return await action();
       } catch (e) {
         if (_isNetworkError(e)) {
-          print("⚠️ BaseService: Mất kết nối mạng -> $e");
+          debugPrint("⚠️ BaseService: Mất kết nối mạng -> $e");
 
           final shouldRetry = await _showRetryDialog();
           if (shouldRetry) {
-            continue; // Thử lại
+            continue;
           }
         }
-        rethrow; // Ném lỗi khác ra ngoài
+        rethrow;
       }
     }
   }
@@ -27,7 +27,9 @@ class BaseService {
   bool _isNetworkError(dynamic error) {
     String msg = error.toString().toLowerCase();
     return error is SocketException ||
+        error is TimeoutException ||
         msg.contains("socketexception") ||
+        msg.contains("timeout") ||
         msg.contains("connection refused") ||
         msg.contains("network is unreachable") ||
         msg.contains("connection timed out") ||

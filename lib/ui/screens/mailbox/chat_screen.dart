@@ -4,7 +4,7 @@ import '../../../models/user_model.dart';
 class ChatScreen extends StatefulWidget {
   final UserModel targetUser;
 
-  const ChatScreen({Key? key, required this.targetUser}) : super(key: key);
+  const ChatScreen({super.key, required this.targetUser});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();

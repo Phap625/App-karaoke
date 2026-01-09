@@ -3,7 +3,7 @@ import 'notifications_tab.dart';
 import 'messages_tap.dart';
 
 class MailboxScreen extends StatelessWidget {
-  const MailboxScreen({Key? key}) : super(key: key);
+  const MailboxScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -21,8 +21,6 @@ class MailboxScreen extends StatelessWidget {
           centerTitle: true,
           backgroundColor: Colors.white,
           elevation: 0,
-
-          // Cấu hình thanh TabBar
           bottom: const TabBar(
             labelColor: primaryColor,
             unselectedLabelColor: Colors.grey,
@@ -35,14 +33,9 @@ class MailboxScreen extends StatelessWidget {
             ],
           ),
         ),
-
-        // Nội dung của từng Tab
         body: const TabBarView(
           children: [
-            // Tab 1: Gọi Widget từ file notifications_tab.dart
             NotificationsTab(),
-
-            // Tab 2: Gọi Widget từ file messages_tab.dart
             MessagesTab(),
           ],
         ),

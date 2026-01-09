@@ -10,7 +10,7 @@ class ApiClient {
 
   late final Dio dio;
   // static const String baseUrl = "http://10.0.2.2:3000";
-  static const String baseUrl = 'https://karaokeplus.cloud';
+  static const String baseUrl = 'https://api.karaokeplus.cloud';
 
   ApiClient._internal() {
     BaseOptions options = BaseOptions(

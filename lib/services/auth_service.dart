@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:onesignal_flutter/onesignal_flutter.dart';
 import '../utils/token_manager.dart';
 import '../utils/user_manager.dart';
 import 'api_client.dart';
@@ -15,6 +16,19 @@ class AuthService extends BaseService{
   final SupabaseClient _client = Supabase.instance.client;
 
   String get _baseUrl => ApiClient.baseUrl;
+
+  // Hàm đồng bộ onesignal
+  Future<void> _syncOneSignal(String userId, String role) async {
+    try {
+      OneSignal.login(userId);
+      await Future.delayed(const Duration(seconds: 2));
+      OneSignal.User.addTagWithKey("role", role);
+
+      print("🔔 OneSignal Synced: $userId ($role)");
+    } catch (e) {
+      print("⚠️ Lỗi sync OneSignal: $e");
+    }
+  }
 
   // Hàm khôi phục session
   Future<bool> recoverSession() async {
@@ -35,6 +49,9 @@ class AuthService extends BaseService{
               response.session!.refreshToken ?? '',
               role
           );
+          if (response.user != null) {
+            _syncOneSignal(response.user!.id, role);
+          }
           return true;
         }
         return false;
@@ -54,6 +71,7 @@ class AuthService extends BaseService{
       // 1. Nếu đang có session trong RAM
       final currentSession = _client.auth.currentSession;
       if (currentSession != null && !currentSession.isExpired) {
+        _syncOneSignal(currentSession.user.id, 'guest');
         print("✅ Session RAM còn, không cần login lại.");
         return;
       }
@@ -79,6 +97,7 @@ class AuthService extends BaseService{
               res.session!.refreshToken ?? '',
               'guest'
           );
+          _syncOneSignal(res.user!.id, 'guest');
         } else {
           throw Exception("Supabase không trả về Session.");
         }
@@ -185,6 +204,9 @@ class AuthService extends BaseService{
               role
           );
 
+          _syncOneSignal(res.user!.id, role);
+          OneSignal.User.addEmail(emailToLogin);
+
           // --- ĐỒNG BỘ SESSION ID TỪ TOKEN ---
           final String supabaseSessionId = await UserManager.instance
               .syncSessionFromToken(session.accessToken);
@@ -241,6 +263,7 @@ class AuthService extends BaseService{
   // Hàm logout
   Future<void> logout() async {
     try {
+      OneSignal.logout();
       await _client.auth.signOut(scope: SignOutScope.global);
     } catch (e) {
       debugPrint("⚠️ Logout Server Error (Ignored): $e");
@@ -393,8 +416,10 @@ class AuthService extends BaseService{
 
   Future<void> resetPasswordFinal(String email, String newPassword, String tempToken) async {
     await safeExecution(() async {
-      if (newPassword.length < 6) throw Exception(
+      if (newPassword.length < 6) {
+        throw Exception(
           'Mật khẩu quá ngắn (>6 ký tự).');
+      }
 
       final response = await http.post(
         Uri.parse('$_baseUrl/api/auth/forgot-password/reset'),

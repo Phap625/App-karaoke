@@ -3,10 +3,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
 import '../../../models/user_model.dart';
 import '../me/user_profile_screen.dart';
+import '../auth/login_screen.dart';
 import 'chat_screen.dart';
 
 class MessagesTab extends StatefulWidget {
-  const MessagesTab({Key? key}) : super(key: key);
+  const MessagesTab({super.key});
 
   @override
   State<MessagesTab> createState() => _MessagesTabState();
@@ -17,20 +18,41 @@ class _MessagesTabState extends State<MessagesTab> {
   final TextEditingController _searchController = TextEditingController();
 
   // Dữ liệu
-  List<UserModel> _allFriends = []; // Danh sách gốc (tất cả bạn bè)
-  List<UserModel> _localSearchResults = []; // Kết quả tìm bạn bè (đã lọc)
-  List<UserModel> _globalSearchResults = []; // Kết quả tìm người lạ
+  List<UserModel> _allFriends = [];
+  List<UserModel> _localSearchResults = [];
+  List<UserModel> _globalSearchResults = [];
 
   // Trạng thái UI
-  bool _isLoadingFriends = true; // Đang tải danh sách bạn lúc đầu
-  bool _isSearching = false; // Người dùng có đang gõ chữ không
-  bool _isGlobalLoading = false; // Đang gọi API tìm người lạ
-  bool _showGlobalResults = false; // Có đang hiện kết quả người lạ không
+  bool _isLoadingFriends = true;
+  bool _isSearching = false;
+  bool _isGlobalLoading = false;
+  bool _showGlobalResults = false;
+
+  // Trạng thái Guest
+  bool _isGuest = false;
 
   @override
   void initState() {
     super.initState();
-    _fetchFriends();
+    _checkGuestAndFetchData();
+  }
+
+  // --- 0. KIỂM TRA GUEST VÀ TẢI DỮ LIỆU ---
+  void _checkGuestAndFetchData() {
+    final currentUser = _supabase.auth.currentUser;
+    final isGuest = currentUser == null || currentUser.userMetadata?['role'] == 'guest';
+
+    if (isGuest) {
+      setState(() {
+        _isGuest = true;
+        _isLoadingFriends = false;
+      });
+    } else {
+      setState(() {
+        _isGuest = false;
+      });
+      _fetchFriends();
+    }
   }
 
   // 1. TẢI DANH SÁCH BẠN BÈ (Local Cache)
@@ -39,7 +61,6 @@ class _MessagesTabState extends State<MessagesTab> {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) return;
 
-      // Query từ VIEW friends_view mà bạn đã tạo
       final response = await _supabase
           .from('friends_view')
           .select()
@@ -62,7 +83,7 @@ class _MessagesTabState extends State<MessagesTab> {
     }
   }
 
-  // 2. XỬ LÝ KHI GÕ TEXT (Lọc Local)
+  // 2. XỬ LÝ KHI GÕ TEXT
   void _onSearchChanged(String query) {
     setState(() {
       _isSearching = query.isNotEmpty;
@@ -81,12 +102,11 @@ class _MessagesTabState extends State<MessagesTab> {
     });
   }
 
-  // 3. XỬ LÝ KHI BẤM "TÌM NGƯỜI LẠ" (Gọi API Global)
+  // 3. TÌM NGƯỜI LẠ (API Global)
   Future<void> _searchGlobal() async {
     final query = _searchController.text.trim();
     if (query.isEmpty) return;
 
-    // Ẩn bàn phím
     FocusScope.of(context).unfocus();
 
     setState(() {
@@ -101,6 +121,9 @@ class _MessagesTabState extends State<MessagesTab> {
           .select()
           .or('username.ilike.%$query%, email.eq.$query, full_name.ilike.%$query%')
           .neq('id', currentUserId!)
+          .neq('role', 'admin')
+          .neq('role', 'own')
+          .neq('role', 'guest')
           .limit(10);
 
       final List<UserModel> results = (response as List)
@@ -132,9 +155,77 @@ class _MessagesTabState extends State<MessagesTab> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isGuest) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(30.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.lock_outline_rounded, size: 60, color: Colors.grey),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                "Tính năng dành cho thành viên",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                "Vui lòng đăng nhập để nhắn tin và trò chuyện cùng bạn bè trên Karaoke Plus.",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey, fontSize: 14),
+              ),
+              const SizedBox(height: 30),
+              SizedBox(
+                width: double.infinity,
+                height: 45,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => LoginScreen(
+                          onLoginSuccess: (bool isSuccess) {
+                            if (isSuccess) {
+                              Navigator.pushNamedAndRemoveUntil(
+                                  context,
+                                  '/home',
+                                      (route) => false
+                              );
+                            }
+                          },
+                          initialErrorMessage: null,
+                        ),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF00CC),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    "Đăng nhập / Đăng ký",
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // --- NẾU LÀ USER: HIỆN GIAO DIỆN CHAT BÌNH THƯỜNG ---
     return Column(
       children: [
-        // --- THANH TÌM KIẾM ---
+        // Thanh tìm kiếm
         Padding(
           padding: const EdgeInsets.all(16.0),
           child: TextField(
@@ -166,21 +257,20 @@ class _MessagesTabState extends State<MessagesTab> {
           ),
         ),
 
-        // --- DANH SÁCH ---
+        // Danh sách
         Expanded(
           child: _isLoadingFriends
               ? const Center(child: CircularProgressIndicator())
               : ListView(
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             children: [
-              // PHẦN 1: KẾT QUẢ BẠN BÈ (LOCAL)
+              // Kết quả local
               if (!_showGlobalResults && _localSearchResults.isEmpty && _isSearching)
                 const SizedBox.shrink()
               else if (!_showGlobalResults)
                 ..._localSearchResults.map((user) => _buildUserItem(user)),
 
-
-              // PHẦN 2: NÚT KÍCH HOẠT TÌM GLOBAL
+              // Nút tìm Global
               if (_isSearching && !_showGlobalResults)
                 InkWell(
                   onTap: _searchGlobal,
@@ -231,7 +321,7 @@ class _MessagesTabState extends State<MessagesTab> {
                   ),
                 ),
 
-              // PHẦN 3: KẾT QUẢ GLOBAL
+              // Kết quả Global
               if (_isGlobalLoading)
                 const Padding(
                   padding: EdgeInsets.all(20.0),
@@ -259,7 +349,6 @@ class _MessagesTabState extends State<MessagesTab> {
     );
   }
 
-  // Widget hiển thị 1 dòng User
   Widget _buildUserItem(UserModel user) {
     return ListTile(
       leading: CircleAvatar(

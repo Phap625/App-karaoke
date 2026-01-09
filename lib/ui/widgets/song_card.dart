@@ -8,14 +8,17 @@ class SongCard extends StatelessWidget {
   final bool isLiked;
 
   const SongCard({
-    Key? key,
+    super.key,
     required this.song,
     required this.onTap,
     this.onLike,
     this.isLiked = false,
-  }) : super(key: key);
+  });
 
-  String _formatViewCount(int views) {
+  // 1. Logic an toàn cho số liệu
+  String _formatViewCount(int? views) {
+    if (views == null || views < 0) return "0";
+
     if (views >= 1000000) {
       return '${(views / 1000000).toStringAsFixed(1)}M';
     } else if (views >= 1000) {
@@ -24,8 +27,21 @@ class SongCard extends StatelessWidget {
     return views.toString();
   }
 
+  // 2. Logic kiểm tra link ảnh
+  bool _isValidImageUrl(String? url) {
+    if (url == null || url.isEmpty) return false;
+    final lowerUrl = url.toLowerCase();
+    if (lowerUrl.endsWith('.mp3') || lowerUrl.endsWith('.wav') || lowerUrl.endsWith('.m4a')) {
+      return false;
+    }
+    return true;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final String? imageUrl = song.imageUrl;
+    final bool hasValidImage = _isValidImageUrl(imageUrl);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
       decoration: BoxDecoration(
@@ -53,29 +69,40 @@ class SongCard extends StatelessWidget {
                 child: SizedBox(
                   width: 70,
                   height: 70,
-                  child: Image.network(
-                    song.imageUrl ?? "https://via.placeholder.com/150",
+                  child: hasValidImage
+                      ? Image.network(
+                    imageUrl!,
                     fit: BoxFit.cover,
                     errorBuilder: (context, error, stackTrace) {
+                      return _buildPlaceholder();
+                    },
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
                       return Container(
-                        color: Colors.grey[200],
-                        child: const Icon(Icons.music_note, color: Colors.grey),
+                        color: Colors.grey[100],
+                        child: const Center(
+                            child: SizedBox(
+                                width: 20, height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2)
+                            )
+                        ),
                       );
                     },
-                  ),
+                  )
+                      : _buildPlaceholder(),
                 ),
               ),
 
               const SizedBox(width: 12),
 
-              // --- 2. THÔNG TIN BÀI HÁT  ---
+              // --- 2. THÔNG TIN BÀI HÁT ---
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      song.title,
+                      song.title ?? "Không xác định",
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
@@ -87,7 +114,7 @@ class SongCard extends StatelessWidget {
                     const SizedBox(height: 4),
 
                     Text(
-                      song.artistName,
+                      song.artistName ?? "Không xác định",
                       style: const TextStyle(
                         color: Colors.grey,
                         fontSize: 13,
@@ -131,6 +158,16 @@ class SongCard extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // Widget hiển thị khi không có ảnh hoặc ảnh lỗi
+  Widget _buildPlaceholder() {
+    return Container(
+      color: Colors.grey[200],
+      child: const Center(
+        child: Icon(Icons.music_note, color: Colors.grey, size: 30),
       ),
     );
   }

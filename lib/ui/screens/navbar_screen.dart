@@ -12,10 +12,10 @@ class NavbarScreen extends StatefulWidget {
   final Function(SongModel) onSongClick;
 
   const NavbarScreen({
-    Key? key,
+    super.key,
     required this.onLogout,
     required this.onSongClick,
-  }) : super(key: key);
+  });
 
   @override
   State<NavbarScreen> createState() => _NavbarScreenState();

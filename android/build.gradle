@@ -8,12 +8,12 @@ buildscript {
     }
 
     dependencies {
-        // Plugin Android Gradle (cần thiết để build app)
+        // Plugin Android Gradle
         classpath 'com.android.tools.build:gradle:8.2.1'
-
         // Plugin Kotlin
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
 
+        classpath 'com.google.gms:google-services:4.4.2'
     }
 }
 

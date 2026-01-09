@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/notification_model.dart';
+import '../../../services/base_service.dart';
 
 class SystemMessagesScreen extends StatefulWidget {
-  const SystemMessagesScreen({Key? key}) : super(key: key);
+  const SystemMessagesScreen({super.key});
 
   @override
   State<SystemMessagesScreen> createState() => _SystemMessagesScreenState();
 }
 
 class _SystemMessagesScreenState extends State<SystemMessagesScreen> {
+  final _baseService = BaseService();
+
   bool _isLoading = true;
   List<NotificationModel> _messages = [];
 
@@ -21,17 +24,30 @@ class _SystemMessagesScreenState extends State<SystemMessagesScreen> {
 
   Future<void> _fetchSystemMessages() async {
     try {
-      final response = await Supabase.instance.client
-          .from('all_notifications_view')
-          .select()
-          .eq('category', 'system')
-          .order('created_at', ascending: false);
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+
+      // 2. Bao bọc bằng safeExecution
+      final response = await _baseService.safeExecution(() async {
+        return await Supabase.instance.client
+            .from('all_notifications_view')
+            .select()
+            .order('created_at', ascending: false);
+      });
 
       if (mounted) {
         setState(() {
-          _messages = (response as List)
+          final allList = (response as List)
               .map((e) => NotificationModel.fromJson(e))
+              .where((noti) {
+            bool isSystem = noti.category == 'system';
+            final type = (noti.type ?? '').trim().toLowerCase();
+            bool isAdminMessage = ['warning', 'info', 'success'].contains(type);
+            return isSystem || isAdminMessage;
+          })
               .toList();
+
+          _messages = allList;
           _isLoading = false;
         });
       }
@@ -41,116 +57,197 @@ class _SystemMessagesScreenState extends State<SystemMessagesScreen> {
     }
   }
 
-  // --- LOGIC QUAN TRỌNG NHẤT Ở ĐÂY ---
   Future<void> _markItemAsRead(int index) async {
     final msg = _messages[index];
-
-    // 1. ANTI-SPAM CHECK: Nếu đã đọc rồi thì dừng ngay lập tức (return).
-    // Không gửi request, không làm gì cả.
     if (msg.isRead) return;
 
-    // 2. OPTIMISTIC UPDATE: Cập nhật UI ngay lập tức để user thấy phản hồi
-    // Tạo một bản sao mới của model với isRead = true
     final updatedMsg = NotificationModel(
       id: msg.id,
       title: msg.title,
       message: msg.message,
       createdAt: msg.createdAt,
-      isRead: true, // Đánh dấu đã đọc local
+      isRead: true,
       type: msg.type,
       category: msg.category,
     );
 
     setState(() {
-      _messages[index] = updatedMsg; // Thay thế item trong list
+      _messages[index] = updatedMsg;
     });
 
-    // 3. Gửi request lên Supabase (Chạy ngầm)
     try {
-      final userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId != null) {
-        await Supabase.instance.client.from('system_read_status').upsert({
+      final supabase = Supabase.instance.client;
+      final userId = supabase.auth.currentUser?.id;
+      if (userId == null) return;
+
+      if (msg.category == 'personal') {
+        await supabase
+            .from('notifications')
+            .update({'is_read': true})
+            .eq('id', msg.id)
+            .eq('user_id', userId);
+      } else {
+        await supabase
+            .from('system_read_status')
+            .upsert({
           'user_id': userId,
           'notification_id': msg.id,
         });
-        // Không cần setState ở đây nữa vì UI đã update ở bước 2 rồi
       }
     } catch (e) {
-      debugPrint("Lỗi server: $e");
-      // Nếu cần thiết, bạn có thể revert UI lại ở đây (nhưng với tính năng "đã đọc" thì không cần quá khắt khe)
+      debugPrint("Lỗi server khi mark read: $e");
+    }
+  }
+
+  _MessageStyle _getStyle(String? typeRaw) {
+    final type = (typeRaw ?? '').trim().toLowerCase();
+    switch (type) {
+      case 'warning':
+        return _MessageStyle(
+          icon: Icons.warning_amber_rounded,
+          color: Colors.red,
+          bgColor: Colors.red.withOpacity(0.1),
+          label: "Cảnh báo",
+        );
+      case 'success':
+        return _MessageStyle(
+          icon: Icons.card_giftcard,
+          color: Colors.green,
+          bgColor: Colors.green.withOpacity(0.1),
+          label: "Quà tặng",
+        );
+      case 'info':
+        return _MessageStyle(
+          icon: Icons.info_outline,
+          color: Colors.blue,
+          bgColor: Colors.blue.withOpacity(0.1),
+          label: "Thông tin",
+        );
+      default:
+        return _MessageStyle(
+          icon: Icons.campaign_rounded,
+          color: const Color(0xFFFF00CC),
+          bgColor: const Color(0xFFFF00CC).withOpacity(0.1),
+          label: "Hệ thống",
+        );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text("Thông báo hệ thống", style: TextStyle(color: Colors.black)),
+        title: const Text("Tin nhắn hệ thống", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
         backgroundColor: Colors.white,
-        elevation: 1,
+        elevation: 0.5,
         iconTheme: const IconThemeData(color: Colors.black),
+        centerTitle: true,
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFFFF00CC)))
+          : _messages.isEmpty
+          ? Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.inbox_rounded, size: 60, color: Colors.grey[300]),
+            const SizedBox(height: 16),
+            Text("Hộp thư trống", style: TextStyle(color: Colors.grey[500], fontSize: 16)),
+            const SizedBox(height: 10),
+            // Nút thử lại thủ công
+            TextButton.icon(
+                onPressed: _fetchSystemMessages,
+                icon: const Icon(Icons.refresh),
+                label: const Text("Tải lại")
+            )
+          ],
+        ),
+      )
           : ListView.builder(
+        padding: const EdgeInsets.only(top: 8, bottom: 20),
         itemCount: _messages.length,
         itemBuilder: (context, index) {
           final msg = _messages[index];
-
-          // Logic hiển thị: Nếu chưa đọc thì nền hồng nhạt, đã đọc thì nền trắng
-          final bgColor = msg.isRead ? Colors.white : const Color(0xFFFFF0F5);
+          final style = _getStyle(msg.type);
+          final bool isUnread = !msg.isRead;
 
           return Container(
-            color: bgColor,
-            child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              leading: Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  // Nếu chưa đọc thì icon màu đậm, đã đọc màu nhạt hơn chút
-                  color: msg.isRead
-                      ? Colors.grey[200]
-                      : Colors.orange.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                    Icons.campaign,
-                    // Icon màu cam nếu chưa đọc, màu xám nếu đọc rồi
-                    color: msg.isRead ? Colors.grey : Colors.orange,
-                    size: 24
-                ),
-              ),
-              title: Text(
-                msg.title,
-                style: TextStyle(
-                  // Chưa đọc thì in đậm
-                  fontWeight: msg.isRead ? FontWeight.normal : FontWeight.bold,
-                  fontSize: 15,
-                ),
-              ),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 6),
-                  Text(
-                    msg.message,
-                    style: TextStyle(
-                      color: Colors.black87,
-                      height: 1.3,
+            margin: const EdgeInsets.only(bottom: 2),
+            decoration: BoxDecoration(
+              color: isUnread ? style.bgColor.withOpacity(0.08) : Colors.white,
+              border: isUnread
+                  ? Border(left: BorderSide(color: style.color, width: 4))
+                  : null,
+            ),
+            child: InkWell(
+              onTap: () => _markItemAsRead(index),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: style.bgColor,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(style.icon, color: style.color, size: 24),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _formatDate(msg.createdAt),
-                    style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                  ),
-                ],
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: style.color.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  style.label.toUpperCase(),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: style.color,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                _formatDate(msg.createdAt),
+                                style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            msg.title,
+                            style: TextStyle(
+                              fontWeight: isUnread ? FontWeight.bold : FontWeight.w600,
+                              fontSize: 15,
+                              color: isUnread ? Colors.black87 : Colors.black54,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            msg.message,
+                            style: TextStyle(
+                              color: isUnread ? Colors.black87 : Colors.grey[600],
+                              height: 1.4,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              onTap: () {
-                // Gọi hàm xử lý khi bấm vào
-                _markItemAsRead(index);
-              },
             ),
           );
         },
@@ -159,6 +256,20 @@ class _SystemMessagesScreenState extends State<SystemMessagesScreen> {
   }
 
   String _formatDate(DateTime date) {
-    return "Ngày ${date.day}/${date.month}/${date.year} • ${date.hour}:${date.minute.toString().padLeft(2, '0')}";
+    return "${date.day}/${date.month} • ${date.hour}:${date.minute.toString().padLeft(2, '0')}";
   }
+}
+
+class _MessageStyle {
+  final IconData icon;
+  final Color color;
+  final Color bgColor;
+  final String label;
+
+  _MessageStyle({
+    required this.icon,
+    required this.color,
+    required this.bgColor,
+    required this.label,
+  });
 }

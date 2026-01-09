@@ -1,26 +1,47 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../utils/token_manager.dart';
 import '../../utils/user_manager.dart';
 import '../../services/user_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/base_service.dart';
 import 'auth/login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({Key? key}) : super(key: key);
+  const SplashScreen({super.key});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  bool _hasNavigated = false;
+  Timer? _safetyValveTimer;
+  final BaseService _baseService = BaseService();
+
   @override
   void initState() {
     super.initState();
+    _safetyValveTimer = Timer(const Duration(seconds: 20), () {
+      if (!_hasNavigated && mounted) {
+        debugPrint("SPLASH: 🚨 Safety Valve kích hoạt -> Ép về Login");
+        _navigateToLogin(message: "Phản hồi quá lâu, vui lòng đăng nhập lại.");
+      }
+    });
+
     _checkAppState();
   }
 
+  @override
+  void dispose() {
+    _safetyValveTimer?.cancel();
+    super.dispose();
+  }
+
   void _navigateToLogin({String? message}) {
-    if (!mounted) return;
+    if (!mounted || _hasNavigated) return;
+    _hasNavigated = true;
+    _safetyValveTimer?.cancel();
 
     Navigator.pushReplacement(
       context,
@@ -35,26 +56,44 @@ class _SplashScreenState extends State<SplashScreen> {
     );
   }
 
+  void _navigateToHome() {
+    if (!mounted || _hasNavigated) return;
+    _hasNavigated = true;
+    _safetyValveTimer?.cancel();
+
+    debugPrint("SPLASH: ✅ Mọi thứ OK -> Vào Home");
+    Navigator.pushReplacementNamed(context, '/home');
+  }
+
   Future<void> _checkAppState() async {
-    final accessToken = await TokenManager.instance.getAccessToken();
-    await Future.delayed(const Duration(seconds: 1));
-
-    if (accessToken == null || accessToken.isEmpty) {
-      debugPrint("SPLASH: Không có token -> Login");
-      _navigateToLogin();
-      return;
-    }
-
     try {
-      await UserService.instance.getUserProfile();
-      await UserManager.instance.checkSessionValidity();
+      debugPrint("SPLASH: 1. Đang lấy token...");
+      final accessToken = await TokenManager.instance.getAccessToken();
 
-      debugPrint("SPLASH: Mọi thứ OK -> Vào Home");
-      if (mounted) Navigator.pushReplacementNamed(context, '/home');
+      await Future.delayed(const Duration(seconds: 1));
+
+      if (accessToken == null || accessToken.isEmpty) {
+        debugPrint("SPLASH: Không có token -> Login");
+        _navigateToLogin();
+        return;
+      }
+
+      debugPrint("SPLASH: 2. Gọi API (Dùng BaseService để tự Retry nếu mất mạng)...");
+
+      await _baseService.safeExecution(() async {
+        return await Future.wait([
+          UserService.instance.getUserProfile(),
+          UserManager.instance.checkSessionValidity(),
+        ]).timeout(const Duration(seconds: 15));
+      });
+
+      _navigateToHome();
 
     } catch (e) {
+      if (_hasNavigated) return;
+
       String errorMsg = e.toString();
-      debugPrint("SPLASH: Lỗi check app state: $errorMsg");
+      debugPrint("SPLASH: ❌ Lỗi (Không phải lỗi mạng hoặc User hủy Retry): $errorMsg");
 
       if (errorMsg.contains("đăng nhập trên thiết bị khác") || errorMsg.contains("bị khóa")) {
         await AuthService.instance.logout();
@@ -63,24 +102,27 @@ class _SplashScreenState extends State<SplashScreen> {
       }
 
       try {
-        debugPrint("SPLASH: Token lỗi -> Thử Refresh...");
+        debugPrint("SPLASH: 3. Có thể do Token hết hạn -> Thử Refresh...");
 
-        final recovered = await AuthService.instance.recoverSession();
+        final recovered = await _baseService.safeExecution(() async {
+          return await AuthService.instance.recoverSession();
+        });
 
         if (recovered) {
-          await UserManager.instance.checkSessionValidity();
-          if (mounted) Navigator.pushReplacementNamed(context, '/home');
+          await _baseService.safeExecution(() async {
+            await UserManager.instance.checkSessionValidity();
+          });
+
+          _navigateToHome();
           return;
         }
       } catch (refreshErr) {
-        debugPrint("SPLASH: Refresh thất bại -> $refreshErr");
+        debugPrint("SPLASH: Refresh thất bại hẳn -> $refreshErr");
       }
 
-      // C. Hết cách -> Logout và về Login
-      debugPrint("SPLASH: Token chết hẳn/User hủy retry -> Logout");
+      debugPrint("SPLASH: Token không thể cứu vãn -> Logout");
       await AuthService.instance.logout();
-
-      _navigateToLogin(message: "Phiên đăng nhập hết hạn hoặc lỗi kết nối.");
+      _navigateToLogin(message: "Phiên đăng nhập hết hạn.");
     }
   }
 
@@ -113,9 +155,7 @@ class _SplashScreenState extends State<SplashScreen> {
                 width: 280,
                 fit: BoxFit.contain,
               ),
-
               const SizedBox(height: 20),
-
               const Text(
                 "KARAOKE PLUS",
                 textAlign: TextAlign.center,
@@ -127,9 +167,7 @@ class _SplashScreenState extends State<SplashScreen> {
                   fontFamily: 'Roboto',
                 ),
               ),
-
               const SizedBox(height: 50),
-
               const CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF00CC)),
                 strokeWidth: 3,

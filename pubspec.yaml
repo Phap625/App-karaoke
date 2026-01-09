@@ -47,6 +47,9 @@ dependencies:
   path_provider: ^2.1.2
   uuid: ^4.5.2
 
+  onesignal_flutter: ^5.0.0
+  universal_html: ^2.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -66,11 +69,11 @@ flutter:
 flutter_launcher_icons:
   android: "ic_launcher"
   ios: false
-  image_path: "assets/logo.png"
+  image_path: "assets/icon_app.png"
   min_sdk_android: 21
   web:
     generate: true
-    image_path: "assets/logo.png"
+    image_path: "assets/icon_app.png"
     background_color: "#1A0E7E"
     theme_color: "#1A0E7E"
 

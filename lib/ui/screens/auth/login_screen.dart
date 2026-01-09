@@ -1,4 +1,4 @@
-import 'dart:async'; // Cần thêm thư viện này để dùng Timer
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../services/auth_service.dart';
 
@@ -7,10 +7,10 @@ class LoginScreen extends StatefulWidget {
   final String? initialErrorMessage;
 
   const LoginScreen({
-    Key? key,
+    super.key,
     required this.onLoginSuccess,
     this.initialErrorMessage,
-  }) : super(key: key);
+  });
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
