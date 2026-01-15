@@ -311,24 +311,9 @@ class _MeScreenState extends State<MeScreen> {
         _buildMenuRow(Icons.mic_none_rounded, "Bản thu âm của tôi", () => Navigator.pushNamed(context, '/recordings')),
         if (!_isGuest) ...[
           const Divider(),
-          _buildMenuRow(Icons.person_off, "Danh sách đen", () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const BlackListScreen()),
-            );
-          }),
-          _buildMenuRow(Icons.help_outline, "Chính sách & Hỗ trợ", () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const PolicyAndSupportScreen()),
-            );
-          }),
-          _buildMenuRow(Icons.star_outline, "Đánh giá", () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const ReviewAppScreen()),
-            );
-          }),
+          _buildMenuRow(Icons.person_off, "Danh sách đen", () => Navigator.pushNamed(context, '/black_list')),
+          _buildMenuRow(Icons.help_outline, "Chính sách & Hỗ trợ", () =>Navigator.pushNamed(context, '/policy_and_support')),
+          _buildMenuRow(Icons.star_outline, "Đánh giá", () => Navigator.pushNamed(context, '/review_app')),
         ],
 
         // Nút Đăng xuất / Đăng nhập

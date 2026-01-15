@@ -8,26 +8,30 @@ class ReviewService {
 
   final _supabase = Supabase.instance.client;
 
-  Future<List<ReviewModel>> fetchReviews({int limit = 10, int offset = 0}) async {
+  // 1. Lấy review của chính user đang đăng nhập
+  Future<ReviewModel?> fetchMyReview() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return null;
+
     try {
       final response = await _supabase
           .from('app_reviews')
           .select('*, users(full_name, avatar_url, username)')
-          .order('created_at', ascending: false)
-          .range(offset, offset + limit - 1);
+          .eq('user_id', user.id)
+          .maybeSingle();
 
-      final List<dynamic> data = response as List<dynamic>;
-      return data.map((e) => ReviewModel.fromJson(e)).toList();
+      if (response == null) return null;
+      return ReviewModel.fromJson(response);
     } catch (e) {
-      debugPrint("Error fetching reviews: $e");
-      rethrow;
+      debugPrint("Error fetching my review: $e");
+      return null;
     }
   }
 
-  // Gửi đánh giá mới
+  // 2. Gửi đánh giá mới (Insert)
   Future<void> addReview(int rating, String comment) async {
     final user = _supabase.auth.currentUser;
-    if (user == null) throw Exception("Bạn cần đăng nhập để đánh giá");
+    if (user == null) throw Exception("Bạn cần đăng nhập");
 
     try {
       await _supabase.from('app_reviews').insert({
@@ -36,8 +40,43 @@ class ReviewService {
         'comment': comment,
       });
     } catch (e) {
-      debugPrint("Error adding review: $e");
-      throw Exception("Không thể gửi đánh giá: $e");
+      if (e.toString().contains('duplicate key') || e.toString().contains('unique')) {
+        throw Exception("Bạn đã đánh giá rồi.");
+      }
+      throw Exception("Lỗi gửi đánh giá: $e");
+    }
+  }
+
+  // 3. Cập nhật đánh giá (Update)
+  Future<void> updateReview(int rating, String comment) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) throw Exception("Bạn cần đăng nhập");
+
+    try {
+      await _supabase
+          .from('app_reviews')
+          .update({
+        'rating': rating,
+        'comment': comment,
+      })
+          .eq('user_id', user.id);
+    } catch (e) {
+      throw Exception("Lỗi cập nhật: $e");
+    }
+  }
+
+  // 4. Xóa đánh giá (Delete)
+  Future<void> deleteReview() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) throw Exception("Bạn cần đăng nhập");
+
+    try {
+      await _supabase
+          .from('app_reviews')
+          .delete()
+          .eq('user_id', user.id);
+    } catch (e) {
+      throw Exception("Lỗi xóa: $e");
     }
   }
 }

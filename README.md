@@ -15,7 +15,7 @@ cùng nhau thưởng thức.
 
 # 3. Cách chạy dự án:
 
-1. Clone dự án về máy:
+1. Clone Repository:
 
         git clone https://github.com/Phap625/App-karaoke.git
 
@@ -23,7 +23,13 @@ cùng nhau thưởng thức.
     
         flutter pub get
 
-3. Khởi chạy máy ảo
+3. Tạo biến môi trường:
+    #### Windows:
+        copy .env.example .env
+
+    #### Mac/Linux:
+        cp .env.example .env
+    ### và điền giá trị vào các Key trong .env
 
 4. Chọn máy ảo và chạy:
 

@@ -24,8 +24,6 @@ class LrcParser {
         lines.add(_parseStandardLine(line, i, rawLines));
       }
     }
-
-    // Sắp xếp lại theo thời gian cho chắc chắn
     lines.sort((a, b) => a.startTime.compareTo(b.startTime));
     return lines;
   }
@@ -37,7 +35,6 @@ class LrcParser {
     int lastMatchEnd = 0;
 
     for (var match in matches) {
-      // Lấy text phía trước thẻ thời gian (nếu có)
       if (tempWords.isNotEmpty) {
         String prevText = line.substring(lastMatchEnd, match.start).trim();
         if (prevText.isNotEmpty) {
@@ -96,8 +93,7 @@ class LrcParser {
     int startTime = _timeToMs(match.group(1), match.group(2), match.group(3));
     String content = match.group(4)?.trim() ?? "";
 
-    // Tìm endTime bằng cách nhìn dòng tiếp theo
-    int endTime = startTime + 5000; // Mặc định 5s
+    int endTime = startTime + 5000;
     if (index + 1 < allLines.length) {
       final nextMatch = _standardRegex.firstMatch(allLines[index + 1]);
       if (nextMatch != null) {

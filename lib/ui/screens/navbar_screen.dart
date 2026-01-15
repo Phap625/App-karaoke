@@ -29,8 +29,7 @@ class _NavbarScreenState extends State<NavbarScreen> {
   void initState() {
     super.initState();
     UserManager.instance.init();
-    // Kích hoạt lắng nghe thông báo ngay khi vào màn hình chính
-    NotificationService.instance.init(); 
+    NotificationService.instance.init();
   }
 
   @override

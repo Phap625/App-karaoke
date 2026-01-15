@@ -95,3 +95,5 @@ app.*.map.json
 /ios/
 /linux/
 /macos/
+
+!.env.example

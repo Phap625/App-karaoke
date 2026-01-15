@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -13,26 +14,32 @@ import 'ui/screens/songs/song_detail_screen.dart';
 import 'ui/screens/splash_screen.dart';
 import 'ui/screens/me/me_recordings_screen.dart';
 import 'ui/screens/me/favorites_screen.dart';
+import 'ui/screens/me/black_list_screen.dart';
+import 'ui/screens/me/review_app_screen.dart';
+import 'ui/screens/me/policy_and_support_screen.dart';
+
+
 
 // Import services, providers & utils
 import 'services/auth_service.dart';
-import 'services/notification_service.dart'; // THÊM IMPORT
+import 'services/notification_service.dart';
 import 'providers/songs_provider.dart';
 import 'utils/token_manager.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
+  await dotenv.load(fileName: ".env");
   WidgetsFlutterBinding.ensureInitialized();
 
   // KHỞI TẠO SUPABASE
   await Supabase.initialize(
-    url: 'https://wvmulnuypsovlvlnmxxi.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind2bXVsbnV5cHNvdmx2bG5teHhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUzMjAwNjAsImV4cCI6MjA4MDg5NjA2MH0.viLyy9wbJiQhfyJb-HNocsgZ1aMIsKGe4y4PJsg907U',
+    url: dotenv.env['SUPABASE_URL']!,
+    anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
   );
   if (!kIsWeb) {
     OneSignal.Debug.setLogLevel(OSLogLevel.verbose);
-    OneSignal.initialize("a69cad20-c2e6-4d0c-88ff-bd86361148d9");
+    OneSignal.initialize(dotenv.env['ONE_SIGNAL_APP_ID']!);
     OneSignal.Notifications.requestPermission(true);
   }
 
@@ -64,7 +71,6 @@ class MyApp extends StatelessWidget {
           useMaterial3: true,
         ),
         navigatorKey: navigatorKey,
-        // Màn hình khởi động
         home: const SplashScreen(),
 
         // ĐỊNH NGHĨA ROUTES
@@ -106,6 +112,9 @@ class MyApp extends StatelessWidget {
           ),
           '/recordings': (context) => const MeRecordingsScreen(),
           '/favorites': (context) => const FavoritesScreen(),
+          '/black_list': (context) => const BlackListScreen(),
+          '/policy_and_support': (context) => const PolicyAndSupportScreen(),
+          '/review_app': (context) => const ReviewAppScreen(),
         },
       ),
     );
@@ -115,7 +124,7 @@ class MyApp extends StatelessWidget {
   void _handleLogout(BuildContext context) async {
     try {
       // RESET DỮ LIỆU THÔNG BÁO VỀ 0 NGAY LẬP TỨC
-      NotificationService.instance.clear(); 
+      NotificationService.instance.clear();
       
       await AuthService.instance.logout();
       await TokenManager.instance.clearAuth();

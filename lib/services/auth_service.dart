@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -266,15 +267,14 @@ class AuthService extends BaseService{
       if (kIsWeb) {
         await _client.auth.signInWithOAuth(
           OAuthProvider.google,
-          // redirectTo: 'http://localhost:5000',
-          redirectTo: 'https://app.karaokeplus.cloud',
+          redirectTo: dotenv.env['REDIRECT_URL'] ?? 'http://localhost:5000',
           scopes: 'email profile openid',
         );
         return;
       }
 
       // 📱 2. MOBILE
-      const webClientId = '575075728372-4450bgdh0h1h8qnk12d4v13q82ufo2qb.apps.googleusercontent.com';
+      final webClientId = dotenv.env['WEB_CLIENT_ID']!;
 
       final GoogleSignIn googleSignIn = GoogleSignIn(
         serverClientId: webClientId,

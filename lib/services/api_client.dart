@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Headers;
 import '../utils/user_manager.dart';
 import '../main.dart';
@@ -9,7 +10,7 @@ class ApiClient {
   static final ApiClient instance = ApiClient._internal();
 
   late final Dio dio;
-  static const String baseUrl = 'https://api.karaokeplus.cloud';
+  static final String baseUrl = dotenv.env['BASE_URL'] ?? 'http://localhost:3000';
 
   ApiClient._internal() {
     BaseOptions options = BaseOptions(

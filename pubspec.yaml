@@ -51,6 +51,8 @@ dependencies:
   onesignal_flutter: ^5.0.0
   universal_html: ^2.3.0
 
+  flutter_dotenv: ^5.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -67,6 +69,7 @@ flutter:
   assets:
     - assets/logo.png
     - assets/google.png
+    - .env
 
 flutter_launcher_icons:
   android: "ic_launcher"
