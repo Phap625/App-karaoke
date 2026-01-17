@@ -6,6 +6,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:timeago/timeago.dart' as timeago;
 
 // Import các màn hình
 import 'ui/screens/auth/login_screen.dart';
@@ -45,6 +46,7 @@ void main() async {
   if (!kIsWeb) {
     await _initOneSignalSafe();
   }
+  timeago.setLocaleMessages('vi', timeago.ViMessages());
 
   runApp(
     MultiProvider(

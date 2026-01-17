@@ -1,6 +1,6 @@
 buildscript {
     // 1. Khai báo phiên bản Kotlin
-    ext.kotlin_version = '1.9.0'
+    ext.kotlin_version = '2.1.0'
 
     repositories {
         google()

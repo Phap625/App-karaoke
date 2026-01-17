@@ -1,12 +1,13 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb; // Quan trọng
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:share_plus/share_plus.dart';
-
+import '../moments/create_moment_screen.dart';
 class MeRecordingsScreen extends StatefulWidget {
-  const MeRecordingsScreen({super.key});
+  final bool isPickingMode;
+  const MeRecordingsScreen({super.key, this.isPickingMode = false,});
 
   @override
   State<MeRecordingsScreen> createState() => _MeRecordingsScreenState();
@@ -14,8 +15,6 @@ class MeRecordingsScreen extends StatefulWidget {
 
 class _MeRecordingsScreenState extends State<MeRecordingsScreen> {
   final AudioPlayer _audioPlayer = AudioPlayer();
-  // Trên Web không dùng được FileSystemEntity, nên ta dùng dynamic hoặc wrapper
-  // Tuy nhiên để đơn giản ta vẫn giữ List này nhưng trên Web nó sẽ luôn rỗng
   List<FileSystemEntity> _files = [];
   bool _isLoading = true;
   String? _currentPlayingPath;
@@ -144,9 +143,21 @@ class _MeRecordingsScreenState extends State<MeRecordingsScreen> {
     await Share.shareXFiles([XFile(path)], text: 'Nghe bản thu âm karaoke của tôi này!');
   }
 
-  // ... (Hàm _postRecording giữ nguyên, nhưng cần check kIsWeb nếu muốn upload) ...
   Future<void> _postRecording(FileSystemEntity file) async {
-    // Logic upload bạn tự xử lý sau
+    await _audioPlayer.stop();
+    setState(() {
+      _isPlaying = false;
+      _currentPlayingPath = null;
+    });
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => CreateMomentScreen(selectedFile: File(file.path)),
+        ),
+      ).then((_) {
+      });
+    }
   }
 
   @override
@@ -154,7 +165,10 @@ class _MeRecordingsScreenState extends State<MeRecordingsScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text("Bản thu âm của tôi", style: TextStyle(color: Colors.black)),
+        title: Text(
+            widget.isPickingMode ? "Chọn bản thu để đăng" : "Bản thu âm của tôi",
+            style: const TextStyle(color: Colors.black)
+        ),
         backgroundColor: Colors.white,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.black),
@@ -240,8 +254,6 @@ class _MeRecordingsScreenState extends State<MeRecordingsScreen> {
             ),
             title: Text(
               fileName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 color: isPlayingThis ? const Color(0xFFFF00CC) : Colors.black,
@@ -251,7 +263,25 @@ class _MeRecordingsScreenState extends State<MeRecordingsScreen> {
               "${modified.day}/${modified.month}/${modified.year}",
               style: const TextStyle(fontSize: 12),
             ),
-            trailing: PopupMenuButton<String>(
+            trailing: widget.isPickingMode
+                ? ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF00CC),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              ),
+              onPressed: () {
+                _audioPlayer.stop();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => CreateMomentScreen(selectedFile: File(file.path)),
+                  ),
+                );
+              },
+              child: const Text("Chọn"),
+            )
+            : PopupMenuButton<String>(
               onSelected: (value) {
                 if (value == 'post') _postRecording(file);
                 if (value == 'delete') _deleteRecording(file);

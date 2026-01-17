@@ -307,11 +307,11 @@ class _MeScreenState extends State<MeScreen> {
   Widget _buildMenuButtons() {
     return Column(
       children: [
-        _buildMenuRow(Icons.favorite_border, "Đã thích", () => Navigator.pushNamed(context, '/favorites')),
+        _buildMenuRow(Icons.favorite_border, "Yêu thích", () => Navigator.pushNamed(context, '/favorites')),
         _buildMenuRow(Icons.mic_none_rounded, "Bản thu âm của tôi", () => Navigator.pushNamed(context, '/recordings')),
         if (!_isGuest) ...[
           const Divider(),
-          _buildMenuRow(Icons.person_off, "Danh sách đen", () => Navigator.pushNamed(context, '/black_list')),
+          _buildMenuRow(Icons.person_off, "Danh sách chặn", () => Navigator.pushNamed(context, '/black_list')),
           _buildMenuRow(Icons.help_outline, "Chính sách & Hỗ trợ", () =>Navigator.pushNamed(context, '/policy_and_support')),
           _buildMenuRow(Icons.star_outline, "Đánh giá", () => Navigator.pushNamed(context, '/review_app')),
         ],

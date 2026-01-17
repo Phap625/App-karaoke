@@ -1146,7 +1146,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   Future<void> _saveRecording(String fileName) async {
     debugPrint("Chạy hàm _saveRecording");
     _stopRecordTimer();
-    String cleanName = fileName.replaceAll(RegExp(r'[^\w\s\-]'), '');
+    String cleanName = fileName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '').trim();
     if (cleanName.isEmpty) cleanName = "recording_${DateTime.now().millisecondsSinceEpoch}";
     try {
       final String? path = await _audioRecorder.stop();
@@ -1174,7 +1174,6 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
         final downloadDir = Directory('/storage/emulated/0/Download/KaraokeApp');
         if (!await downloadDir.exists()) await downloadDir.create(recursive: true);
 
-        String cleanName = fileName.replaceAll(RegExp(r'[^\w\s\-]'), '');
         final newPath = '${downloadDir.path}/$cleanName.wav';
 
         await sourceFile.copy(newPath);
@@ -1309,8 +1308,10 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   // Đăt tên file lưu
   void _showSaveNameDialog({VoidCallback? onSaveSuccess}) {
     final TextEditingController nameController = TextEditingController();
-    nameController.text = "${_song?.title ?? 'Record'}_${DateTime.now().hour}${DateTime.now().minute}";
-
+    String defaultTitle = _song?.title ?? 'Record';
+    defaultTitle = defaultTitle.replaceAll(RegExp(r'[<>:"/\\|?*]'), '').trim();
+    if (defaultTitle.isEmpty) defaultTitle = "Record";
+    nameController.text = "${defaultTitle}_${DateTime.now().hour}${DateTime.now().minute}";
     showDialog(
       context: context,
       barrierDismissible: false,

@@ -56,7 +56,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
         title: const Text(
-            "Bài hát đã thích",
+            "Yêu thích",
             style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)
         ),
         backgroundColor: Colors.white,
