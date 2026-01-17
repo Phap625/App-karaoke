@@ -88,6 +88,24 @@ class SongService extends BaseService {
     }
   }
 
+  Future<List<SongModel>> getSongsPagination(int page, int limit) async {
+    try {
+      final int from = page * limit;
+      final int to = from + limit - 1;
+      final response = await _supabase
+          .from('songs')
+          .select()
+          .order('view_count', ascending: false)
+          .range(from, to);
+
+      final List<dynamic> data = response as List<dynamic>;
+      return data.map((json) => SongModel.fromJson(json)).toList();
+    } catch (e) {
+      debugPrint("Lỗi getSongsPagination: $e");
+      rethrow;
+    }
+  }
+
   // =========================
   // 2. CÁC HÀM FAVORITE
   // =========================

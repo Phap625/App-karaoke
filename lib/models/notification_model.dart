@@ -6,6 +6,8 @@ class NotificationModel {
   final bool isRead;
   final String type; // 'like', 'comment', 'follow', 'system'
   final String category; // 'personal' hoặc 'system'
+  final String? actorId;
+  final String? actorAvatarUrl;
 
   NotificationModel({
     required this.id,
@@ -15,6 +17,9 @@ class NotificationModel {
     required this.isRead,
     required this.type,
     required this.category,
+    this.actorId,
+    this.actorAvatarUrl,
+
   });
 
   factory NotificationModel.fromJson(Map<String, dynamic> json) {
@@ -26,6 +31,8 @@ class NotificationModel {
       isRead: json['is_read'] ?? false,
       type: json['type'] ?? 'system',
       category: json['category'] ?? 'personal',
+      actorId: json['actor_id'],
+      actorAvatarUrl: json['actor_avatar_url'],
     );
   }
 }

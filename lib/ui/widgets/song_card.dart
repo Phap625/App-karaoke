@@ -80,10 +80,10 @@ class SongCard extends StatelessWidget {
                         color: Colors.grey[100],
                         child: const Center(
                             child: SizedBox(
-                                width: 20, height: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2)
-                            )
-                        ),
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2))),
                       );
                     },
                   )
@@ -122,16 +122,19 @@ class SongCard extends StatelessWidget {
                     ),
 
                     const SizedBox(height: 6),
-
                     Row(
                       children: [
                         Icon(Icons.mic, size: 14, color: Colors.grey[600]),
                         const SizedBox(width: 4),
-                        Text(
-                          "${_formatViewCount(song.viewCount)} lượt hát",
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                            fontSize: 12,
+                        Flexible(
+                          child: Text(
+                            "${_formatViewCount(song.viewCount)} lượt hát",
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 12,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],

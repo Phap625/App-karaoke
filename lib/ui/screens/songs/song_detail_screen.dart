@@ -19,6 +19,9 @@ import '../../../models/song_model.dart';
 import '../../../services/song_service.dart';
 import '../../../utils/lrc_parser.dart';
 import '../../../providers/songs_provider.dart';
+import '../../widgets/song_card.dart';
+import '../../widgets/report_dialog.dart';
+import '../../../services/report_service.dart';
 
 // --- MODEL SECTIONS ---
 class SongSection {
@@ -50,6 +53,11 @@ class SongDetailScreen extends StatefulWidget {
 
 class _SongDetailScreenState extends State<SongDetailScreen> {
   // 1. Data Variables
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final ScrollController _drawerScrollController = ScrollController();
+  StreamSubscription? _playerStateSubscription;
+  StreamSubscription? _positionSubscription;
+  StreamSubscription? _eventSubscription;
   SongModel? _song;
   List<LyricLine> _lyrics = [];
   List<SongSection> _sections = [];
@@ -107,16 +115,24 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     _initAudioSession();
     _setupAudioListeners();
     _loadData();
+    _drawerScrollController.addListener(_onDrawerScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<SongsProvider>().initDrawerData();
+    });
   }
 
   @override
   void dispose() {
     WakelockPlus.disable();
+    _playerStateSubscription?.cancel();
+    _positionSubscription?.cancel();
+    _eventSubscription?.cancel();
     _bufferingWatchdog?.cancel();
     _audioRecorder.dispose();
     _beatPlayer.dispose();
     _vocalPlayer.dispose();
     _scrollController.dispose();
+    _drawerScrollController.dispose();
     _userScrollTimeoutTimer?.cancel();
     _countdownTimer?.cancel();
     _positionStreamController.close();
@@ -124,10 +140,16 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     super.dispose();
   }
 
+  void _onDrawerScroll() {
+    if (_drawerScrollController.position.pixels >= _drawerScrollController.position.maxScrollExtent - 200) {
+      context.read<SongsProvider>().loadMoreDrawerSongs();
+    }
+  }
+
   // Thiết lập các listener cho Audio Player
   void _setupAudioListeners() {
     debugPrint("Chạy hàm _setupAudioListeners");
-    _beatPlayer.positionStream.listen((position) {
+    _positionSubscription = _beatPlayer.positionStream.listen((position) {
       if (!_positionStreamController.isClosed) {
         _positionStreamController.add(position);
       }
@@ -141,7 +163,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
       }
     });
 
-    _beatPlayer.playerStateStream.listen((state) {
+    _playerStateSubscription = _beatPlayer.playerStateStream.listen((state) {
       if (state.processingState == ProcessingState.buffering ||
           state.processingState == ProcessingState.loading) {
         _startBufferingWatchdog();
@@ -163,7 +185,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
       }
     });
 
-    _beatPlayer.playbackEventStream.listen(
+    _eventSubscription = _beatPlayer.playbackEventStream.listen(
           (event) {},
       onError: (Object e, StackTrace st) {
         debugPrint("Playback Error detected: $e");
@@ -762,22 +784,70 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     });
   }
 
-  // Xử lý nút Back trên AppBar
-  Future<void> _onBackPressed() async {
-    debugPrint("Chạy hàm _onBackPressed");
+  // Hàm chung để xử lý việc chuyển màn hình (Back hoặc chọn bài mới)
+  Future<void> _handleSafeNavigation(VoidCallback onNavigationAction) async {
+    debugPrint("Chạy hàm _handleSafeNavigation");
+
+    // Trường hợp 1: Không ghi âm -> Thoát luôn
     if (!_isRecording) {
-      _discardRecording();
-      widget.onBack();
+      await _discardRecording(updateUI: false);
+      if (mounted) onNavigationAction();
       return;
     }
+
+    // Trường hợp 2: Ghi âm quá ngắn -> Hủy và Thoát luôn
     if (_currentRecDuration.inSeconds < 10) {
-      await _discardRecording();
-      widget.onBack();
+      await _discardRecording(updateUI: false);
+      if (mounted) onNavigationAction();
       return;
     }
+
+    // Trường hợp 3: Đang ghi âm dài -> Hỏi lưu
     await _pauseSession();
     if (!mounted) return;
-    _showExitConfirmationDialog();
+    // Hiển thị dialog xác nhận
+    _showExitConfirmationDialog(customAction: onNavigationAction);
+  }
+
+  // Xử lý nút Back trên AppBar
+  Future<void> _onBackPressed() async {
+    await _handleSafeNavigation(() {
+      widget.onBack();
+    });
+  }
+
+  // Xử lý báo cáo bài hát hiện tại
+  Future<void> _handleReportCurrentSong() async {
+    await _pauseSession();
+    if (!mounted) return;
+    if (_scaffoldKey.currentState?.isEndDrawerOpen ?? false) {
+      Navigator.of(context).pop();
+    }
+    ReportModal.show(
+      context,
+      targetType: ReportTargetType.song,
+      targetId: widget.songId.toString(),
+      contentTitle: _song?.title ?? "Bài hát này",
+    );
+  }
+
+  // Hàm xử lý khi chọn bài hát từ Drawer
+  void _onSongSelectedFromDrawer(SongModel newSong) {
+    // Đóng drawer trước
+    Navigator.of(context).pop();
+
+    _handleSafeNavigation(() {
+      // Logic Push Replacement như yêu cầu
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => SongDetailScreen(
+            songId: newSong.id,
+            onBack: widget.onBack, // Giữ nguyên callback onBack của màn cha
+          ),
+        ),
+      );
+    });
   }
 
   // Xử lý khi bấm vào các nút chọn đoạn (Section)
@@ -1043,8 +1113,8 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   }
 
   // Hủy và xóa file thu âm tạm
-  Future<void> _discardRecording() async {
-    debugPrint("Chạy hàm _discardRecording");
+  Future<void> _discardRecording({bool updateUI = true}) async {
+    debugPrint("Chạy hàm _discardRecording: $updateUI");
     _stopRecordTimer();
     try {
       await _audioRecorder.stop();
@@ -1056,12 +1126,17 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
           debugPrint("Đã xóa file tạm trên bộ nhớ máy.");
         }
       }
-      setState(() {
+      if (updateUI && mounted) {
+        setState(() {
+          _isRecording = false;
+          _recordingPath = null;
+          _isSessionStarted = false;
+        });
+      } else {
         _isRecording = false;
         _recordingPath = null;
         _isSessionStarted = false;
-      });
-      // if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Đã hủy bản thu âm")));
+      }
     } catch (e) {
       debugPrint("Discard Error: $e");
     }
@@ -1232,7 +1307,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   }
 
   // Đăt tên file lưu
-  void _showSaveNameDialog({bool shouldPopAfterSave = false}) {
+  void _showSaveNameDialog({VoidCallback? onSaveSuccess}) {
     final TextEditingController nameController = TextEditingController();
     nameController.text = "${_song?.title ?? 'Record'}_${DateTime.now().hour}${DateTime.now().minute}";
 
@@ -1271,7 +1346,9 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
                 if (name.isNotEmpty) {
                   Navigator.pop(context);
                   _saveRecording(name).then((_) {
-                    if (shouldPopAfterSave) widget.onBack();
+                    if (onSaveSuccess != null && mounted) {
+                      onSaveSuccess();
+                    }
                   });
                 }
               },
@@ -1283,30 +1360,32 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     );
   }
 
-  void _showExitConfirmationDialog() {
+  void _showExitConfirmationDialog({VoidCallback? customAction}) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.grey[900],
-        title: const Text("Thoát màn hình?", style: TextStyle(color: Colors.white)),
+        title: const Text("Bạn sắp thoát khỏi màn hình hiện tại?", style: TextStyle(color: Colors.white)),
         content: const Text("Bạn đang thu âm. Bạn có muốn lưu lại trước khi thoát không?", style: TextStyle(color: Colors.white70)),
         actions: [
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              _discardRecording();
-              widget.onBack();
+              _discardRecording(updateUI: false);
+              if (customAction != null && mounted) {
+                customAction();
+              }
             },
-            child: const Text("Thoát (Không lưu)", style: TextStyle(color: Colors.redAccent)),
+            child: const Text("Không lưu", style: TextStyle(color: Colors.redAccent)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF00CC)),
             onPressed: () {
               Navigator.pop(context);
-              _showSaveNameDialog(shouldPopAfterSave: true);
+              _showSaveNameDialog(onSaveSuccess: customAction);
             },
-            child: const Text("Lưu & Thoát", style: TextStyle(color: Colors.white)),
+            child: const Text("Lưu", style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -1546,8 +1625,14 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
     final topPadding = MediaQuery.of(context).padding.top;
     const appBarHeight = kToolbarHeight;
+    final drawerWidth = MediaQuery.of(context).size.width * 0.7;
 
     return Scaffold(
+      key: _scaffoldKey,
+      endDrawer: SizedBox(
+        width: drawerWidth,
+        child: _buildSideSongList(),
+      ),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -1610,7 +1695,13 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
         ],
       ),
       extendBodyBehindAppBar: true,
-      body: Container(
+      body: GestureDetector(
+        onHorizontalDragEnd: (details) {
+          if (details.primaryVelocity! < -500) {
+            _scaffoldKey.currentState?.openEndDrawer();
+          }
+        },
+      child: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
@@ -1651,6 +1742,77 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
             ),
           ],
         ),
+      ),
+      )
+    );
+  }
+
+  Widget _buildSideSongList() {
+    return Container(
+      color: Colors.grey[900],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 50),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  "Gợi ý",
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                SizedBox(
+                  height: 30,
+                  width: 30,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    tooltip: "Báo cáo bài hát này",
+                    icon: const Icon(Icons.flag_outlined, color: Colors.white54, size: 20),
+                    onPressed: _handleReportCurrentSong,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(color: Colors.white24),
+          Expanded(
+            child: Consumer<SongsProvider>(
+              builder: (context, provider, child) {
+                final songs = provider.drawerSongs;
+                // Lọc bỏ bài hiện tại khỏi danh sách hiển thị
+                final displaySongs = songs.where((s) => s.id != widget.songId).toList();
+                if (displaySongs.isEmpty && provider.isDrawerLoading) {
+                  return const Center(child: CircularProgressIndicator(color: Color(0xFFFF00CC)));
+                }
+                return ListView.separated(
+                  controller: _drawerScrollController,
+                  padding: const EdgeInsets.all(8),
+                  itemCount: displaySongs.length + 1,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    if (index == displaySongs.length) {
+                      return provider.isDrawerLoading
+                          ? const Center(child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator(color: Color(0xFFFF00CC))))
+                          : const SizedBox.shrink();
+                    }
+
+                    final song = displaySongs[index];
+                    return SizedBox(
+                      child: SongCard(
+                        song: song,
+                        isLiked: provider.isSongLiked(song.id),
+                        onTap: () => _onSongSelectedFromDrawer(song),
+                        onLike: () => provider.toggleLike(song.id),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

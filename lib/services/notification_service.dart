@@ -57,7 +57,7 @@ class NotificationService {
     _notifSub = _supabase
         .from('notifications')
         .stream(primaryKey: ['id'])
-        .eq('receiver_id', userId)
+        .eq('user_id', userId)
         .map((data) => data.where((item) => item['is_read'] == false).length)
         .listen((count) => _notifsController.add(count));
 
@@ -67,8 +67,7 @@ class NotificationService {
         .stream(primaryKey: ['message_id'])
         .eq('receiver_id', userId)
         .map((data) {
-          // QUAN TRỌNG: Chỉ đếm tin nhắn mà mình là người NHẬN và chưa đọc
-          return data.where((item) => 
+          return data.where((item) =>
             item['receiver_id'] == userId && 
             item['is_read'] == false
           ).length;

@@ -2,92 +2,160 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/notification_model.dart';
 
-class NotificationItem extends StatelessWidget {
+class NotificationItem extends StatefulWidget {
   final NotificationModel notification;
 
   const NotificationItem({super.key, required this.notification});
 
+  @override
+  State<NotificationItem> createState() => _NotificationItemState();
+}
+
+class _NotificationItemState extends State<NotificationItem> {
+  late bool _isRead;
+  bool _isExpanded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _isRead = widget.notification.isRead;
+  }
+
+  @override
+  void didUpdateWidget(NotificationItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.notification.isRead != oldWidget.notification.isRead) {
+      _isRead = widget.notification.isRead;
+    }
+  }
+
   Future<void> _markAsRead() async {
-    if (notification.isRead) return;
+    if (_isRead) return;
+    setState(() {
+      _isRead = true;
+    });
+
     try {
       await Supabase.instance.client
           .from('notifications')
           .update({'is_read': true})
-          .eq('id', notification.id);
+          .eq('id', widget.notification.id);
     } catch (e) {
-      debugPrint("Lỗi mark read personal: $e");
+      debugPrint("Lỗi mark read: $e");
+      if (mounted) setState(() => _isRead = false);
+    }
+  }
+
+  Future<bool> _deleteNotification(BuildContext context) async {
+    try {
+      final response = await Supabase.instance.client
+          .from('notifications')
+          .delete()
+          .eq('id', widget.notification.id)
+          .select();
+      return response.isNotEmpty;
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Lỗi: Không thể xoá thông báo này")),
+        );
+      }
+      return false;
+    }
+  }
+
+  Future<String?> _fetchActorAvatar() async {
+    if (widget.notification.actorAvatarUrl != null) return widget.notification.actorAvatarUrl;
+    if (widget.notification.actorId == null) return null;
+    try {
+      final data = await Supabase.instance.client
+          .from('users')
+          .select('avatar_url')
+          .eq('id', widget.notification.actorId!)
+          .single();
+      return data['avatar_url'] as String?;
+    } catch (e) {
+      return null;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final bool isUnread = !notification.isRead;
+    final bool isUnreadLocal = !_isRead;
 
-    return InkWell(
-      onTap: () {
-        _markAsRead();
-        // TODO: Navigate logic
+    return Dismissible(
+      key: Key(widget.notification.id.toString()),
+      direction: DismissDirection.startToEnd,
+      background: Container(
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.only(left: 20),
+        color: Colors.redAccent,
+        child: const Icon(Icons.delete_outline, color: Colors.white, size: 30),
+      ),
+      confirmDismiss: (direction) async {
+        return await _deleteNotification(context);
       },
-      child: Container(
-        color: isUnread ? const Color(0xFFF0F7FF) : Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            _buildAvatarStack(),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  RichText(
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    text: TextSpan(
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Colors.black87,
-                        height: 1.4,
-                        fontFamily: 'Roboto',
-                      ),
-                      children: [
-                        TextSpan(
-                          text: notification.title,
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        TextSpan(
-                          text: " ${notification.message}",
-                          style: TextStyle(
-                            color: isUnread ? Colors.black87 : Colors.grey[700],
+      child: InkWell(
+        onTap: () {
+          _markAsRead();
+          setState(() {
+            _isExpanded = !_isExpanded;
+          });
+        },
+        child: Container(
+          color: isUnreadLocal ? const Color(0xFFF0F7FF) : Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildAvatarStack(),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const SizedBox(height: 4),
+                    RichText(
+                      maxLines: _isExpanded ? null : 2,
+                      overflow: _isExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
+                      text: TextSpan(
+                        style: const TextStyle(fontSize: 14, color: Colors.black87, height: 1.4, fontFamily: 'Roboto'),
+                        children: [
+                          TextSpan(
+                            text: widget.notification.title,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
-                        ),
-                      ],
+                          TextSpan(
+                            text: " ${widget.notification.message}",
+                            style: TextStyle(
+                              color: isUnreadLocal ? Colors.black87 : Colors.grey[700],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _formatTime(notification.createdAt),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isUnread ? const Color(0xFFFF00CC) : Colors.grey[500],
-                      fontWeight: isUnread ? FontWeight.w600 : FontWeight.normal,
+                    const SizedBox(height: 8),
+                    Text(
+                      _formatTime(widget.notification.createdAt),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isUnreadLocal ? const Color(0xFFFF00CC) : Colors.grey[500],
+                        fontWeight: isUnreadLocal ? FontWeight.w600 : FontWeight.normal,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            if (isUnread)
-              Container(
-                margin: const EdgeInsets.only(left: 8),
-                width: 10,
-                height: 10,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFF00CC),
-                  shape: BoxShape.circle,
+                  ],
                 ),
               ),
-          ],
+              if (isUnreadLocal)
+                Container(
+                  margin: const EdgeInsets.only(left: 8, top: 18),
+                  width: 10,
+                  height: 10,
+                  decoration: const BoxDecoration(color: Color(0xFFFF00CC), shape: BoxShape.circle),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -107,9 +175,15 @@ class NotificationItem extends StatelessWidget {
                 color: Colors.grey.shade100,
               ),
               child: ClipOval(
-                // Placeholder Avatar đẹp hơn
-                child: Icon(Icons.person, color: Colors.grey.shade400, size: 30),
-                // Thay bằng: Image.network(avatarUrl, fit: BoxFit.cover)
+                child: FutureBuilder<String?>(
+                  future: _fetchActorAvatar(),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasData && snapshot.data != null && snapshot.data!.isNotEmpty) {
+                      return Image.network(snapshot.data!, fit: BoxFit.cover);
+                    }
+                    return Icon(Icons.person, color: Colors.grey.shade400, size: 30);
+                  },
+                ),
               ),
             ),
           ),
@@ -122,9 +196,7 @@ class NotificationItem extends StatelessWidget {
                   color: _getIconColor(),
                   shape: BoxShape.circle,
                   border: Border.all(color: Colors.white, width: 2),
-                  boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4)
-                  ]
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4)]
               ),
               child: Icon(_getIconData(), size: 12, color: Colors.white),
             ),
@@ -135,7 +207,7 @@ class NotificationItem extends StatelessWidget {
   }
 
   IconData _getIconData() {
-    final type = (notification.type ?? '').toLowerCase();
+    final type = (widget.notification.type).toLowerCase();
     switch (type) {
       case 'like': return Icons.favorite_rounded;
       case 'comment': return Icons.chat_bubble_rounded;
@@ -145,7 +217,7 @@ class NotificationItem extends StatelessWidget {
   }
 
   Color _getIconColor() {
-    final type = (notification.type ?? '').toLowerCase();
+    final type = (widget.notification.type).toLowerCase();
     switch (type) {
       case 'like': return const Color(0xFFFF4D4F);
       case 'comment': return const Color(0xFF1890FF);
@@ -157,7 +229,6 @@ class NotificationItem extends StatelessWidget {
   String _formatTime(DateTime time) {
     final now = DateTime.now();
     final diff = now.difference(time);
-
     if (diff.inSeconds < 60) return "Vừa xong";
     if (diff.inMinutes < 60) return "${diff.inMinutes} phút trước";
     if (diff.inHours < 24) return "${diff.inHours} giờ trước";

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/user_model.dart';
+import '../../../services/user_service.dart';
 
 class BlackListScreen extends StatefulWidget {
   const BlackListScreen({super.key});
@@ -27,30 +28,11 @@ class _BlackListScreenState extends State<BlackListScreen> {
     if (currentUserId == null) return;
 
     try {
-      final blockedData = await _supabase
-          .from('blocked_users')
-          .select('blocked_id')
-          .eq('blocker_id', currentUserId);
-
-      final List<dynamic> blockedIds = blockedData.map((e) => e['blocked_id']).toList();
-
-      if (blockedIds.isEmpty) {
-        if (mounted) setState(() { _blockedUsers = []; _isLoading = false; });
-        return;
-      }
-
-      final usersData = await _supabase
-          .from('users')
-          .select()
-          .filter('id', 'in', blockedIds);
-
-      final List<UserModel> loadedUsers = (usersData as List)
-          .map((json) => UserModel.fromSearch(json))
-          .toList();
+      final users = await UserService.instance.fetchBlockedUsers(currentUserId);
 
       if (mounted) {
         setState(() {
-          _blockedUsers = loadedUsers;
+          _blockedUsers = users;
           _isLoading = false;
         });
       }
@@ -86,17 +68,7 @@ class _BlackListScreenState extends State<BlackListScreen> {
     if (confirm != true) return;
 
     try {
-      await _supabase
-          .from('blocked_users')
-          .delete()
-          .eq('blocker_id', currentUserId)
-          .eq('blocked_id', user.id);
-
-      await _supabase
-          .from('deleted_conversations')
-          .delete()
-          .eq('user_id', currentUserId)
-          .eq('partner_id', user.id);
+      await UserService.instance.unblockUser(currentUserId, user.id);
 
       setState(() {
         _blockedUsers.removeWhere((element) => element.id == user.id);

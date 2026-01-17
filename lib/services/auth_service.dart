@@ -21,6 +21,10 @@ class AuthService extends BaseService{
 
   // Hàm đồng bộ onesignal
   Future<void> _syncOneSignal(String userId, String role) async {
+    final appId = dotenv.env['ONE_SIGNAL_APP_ID'];
+    if (appId == null || appId.trim().isEmpty) {
+      return;
+    }
     try {
       OneSignal.login(userId);
       await Future.delayed(const Duration(seconds: 2));

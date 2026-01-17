@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -33,14 +35,15 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // KHỞI TẠO SUPABASE
+  Map<String, String> supabaseConfig = await _fetchSupabaseConfig();
+  debugPrint("🚀 Đang kết nối Supabase: ${supabaseConfig['isBackup'] == 'true' ? 'BACKUP' : 'MAIN'}");
+
   await Supabase.initialize(
-    url: dotenv.env['SUPABASE_URL']!,
-    anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
+    url: supabaseConfig['url']!,
+    anonKey: supabaseConfig['key']!,
   );
   if (!kIsWeb) {
-    OneSignal.Debug.setLogLevel(OSLogLevel.verbose);
-    OneSignal.initialize(dotenv.env['ONE_SIGNAL_APP_ID']!);
-    OneSignal.Notifications.requestPermission(true);
+    await _initOneSignalSafe();
   }
 
   runApp(
@@ -53,16 +56,56 @@ void main() async {
   );
 }
 
+Future<Map<String, String>> _fetchSupabaseConfig() async {
+  final String serverUrl = dotenv.env['BASE_URL'] ?? "http://localhost:3000";
+
+  String currentUrl = dotenv.env['SUPABASE_URL']!;
+  String currentKey = dotenv.env['SUPABASE_ANON_KEY']!;
+  String isBackup = "false";
+
+  try {
+    final response = await http.get(Uri.parse('$serverUrl/api/app-config'))
+        .timeout(const Duration(seconds: 5));
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      currentUrl = data['supabaseUrl'];
+      currentKey = data['supabaseAnonKey'];
+      isBackup = data['isBackup'].toString();
+    }
+  } catch (e) {
+    debugPrint("⚠️ Không lấy được config từ Server, dùng config mặc định .env: $e");
+  }
+
+  return {
+    'url': currentUrl,
+    'key': currentKey,
+    'isBackup': isBackup
+  };
+}
+
+Future<void> _initOneSignalSafe() async {
+  try {
+    final String? appId = dotenv.env['ONE_SIGNAL_APP_ID'];
+    if (appId == null || appId.trim().isEmpty) {
+      debugPrint("⚠️ OneSignal: Không tìm thấy APP ID trong .env. Bỏ qua thông báo đẩy.");
+      return;
+    }
+    OneSignal.Debug.setLogLevel(OSLogLevel.verbose);
+    OneSignal.initialize(appId);
+    await OneSignal.Notifications.requestPermission(true);
+    debugPrint("✅ OneSignal khởi tạo thành công.");
+
+  } catch (e) {
+    debugPrint("❌ Lỗi khởi tạo OneSignal: $e");
+  }
+}
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => SongsProvider()),
-      ],
-      child: MaterialApp(
+      return MaterialApp(
         title: 'KARAOKE PLUS',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
@@ -103,7 +146,7 @@ class MyApp extends StatelessWidget {
                   builder: (context) => SongDetailScreen(
                     songId: song.id,
                     onBack: () {
-                      Navigator.pop(context);
+                      navigatorKey.currentState?.pop();
                     },
                   ),
                 ),
@@ -116,8 +159,7 @@ class MyApp extends StatelessWidget {
           '/policy_and_support': (context) => const PolicyAndSupportScreen(),
           '/review_app': (context) => const ReviewAppScreen(),
         },
-      ),
-    );
+      );
   }
 
   // --- HÀM XỬ LÝ ĐĂNG XUẤT ---

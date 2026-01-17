@@ -14,6 +14,16 @@ class SongsProvider extends ChangeNotifier {
 
   Set<int> _likedSongIds = {};
 
+  List<SongModel> _drawerSongs = [];
+  List<SongModel> get drawerSongs => _drawerSongs;
+
+  bool _isDrawerLoading = false;
+  bool get isDrawerLoading => _isDrawerLoading;
+
+  bool _hasMoreDrawerSongs = true;
+  int _drawerPage = 0;
+  final int _drawerLimit = 10;
+
   SongsProvider() {
     fetchSongsData();
   }
@@ -45,6 +55,42 @@ class SongsProvider extends ChangeNotifier {
       debugPrint(_errorMessage);
     } finally {
       _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> initDrawerData() async {
+    _drawerSongs = [];
+    _drawerPage = 0;
+    _hasMoreDrawerSongs = true;
+    _isDrawerLoading = false;
+    notifyListeners();
+    await loadMoreDrawerSongs();
+  }
+
+  Future<void> loadMoreDrawerSongs() async {
+    if (_isDrawerLoading || !_hasMoreDrawerSongs) return;
+
+    _isDrawerLoading = true;
+    notifyListeners();
+
+    try {
+      final newSongs = await SongService.instance.getSongsPagination(_drawerPage, _drawerLimit);
+
+      if (newSongs.isEmpty) {
+        _hasMoreDrawerSongs = false;
+      } else {
+        _drawerSongs.addAll(newSongs);
+        _drawerPage++;
+
+        if (newSongs.length < _drawerLimit) {
+          _hasMoreDrawerSongs = false;
+        }
+      }
+    } catch (e) {
+      debugPrint("Lỗi load drawer: $e");
+    } finally {
+      _isDrawerLoading = false;
       notifyListeners();
     }
   }

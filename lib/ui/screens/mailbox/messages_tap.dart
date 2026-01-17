@@ -33,7 +33,6 @@ class _MessagesTabState extends State<MessagesTab> {
   List<UserModel> _allFriends = [];
   List<UserModel> _localSearchResults = [];
   List<UserModel> _globalSearchResults = [];
-  bool _isLoadingFriends = true;
   bool _isSearching = false;
   bool _isGlobalLoading = false;
   bool _showGlobalResults = false;
@@ -145,34 +144,62 @@ class _MessagesTabState extends State<MessagesTab> {
   Future<void> _searchGlobal() async {
     final query = _searchController.text.trim();
     if (query.isEmpty) return;
+
     FocusScope.of(context).unfocus();
-    setState(() { 
-      _isGlobalLoading = true; 
-      _showGlobalResults = true; 
+    setState(() {
+      _isGlobalLoading = true;
+      _showGlobalResults = true;
     });
 
     try {
       final currentUserId = _supabase.auth.currentUser?.id;
-      final response = await _supabase
+      if (currentUserId == null) return;
+
+      // 1. Lấy danh sách ID những người MÌNH ĐÃ CHẶN
+      final blockedData = await _supabase
+          .from('blocked_users')
+          .select('blocked_id')
+          .eq('blocker_id', currentUserId);
+
+      final List<String> blockedIds = (blockedData as List)
+          .map((item) => item['blocked_id'] as String)
+          .toList();
+
+      // 2. Chuẩn bị thời gian hiện tại để so sánh lock
+      final String now = DateTime.now().toUtc().toIso8601String();
+
+      // 3. Xây dựng Query
+      var queryBuilder = _supabase
           .from('users')
           .select()
           .or('username.ilike.%$query%, full_name.ilike.%$query%')
           .eq('role', 'user')
-          .neq('id', currentUserId!)
-          .limit(20);
+          .neq('id', currentUserId)
+          .or('locked_until.is.null,locked_until.lt.$now');
 
-      final List<UserModel> results = (response as List).map((data) => UserModel.fromSearch(data)).toList();
-      
+      if (blockedIds.isNotEmpty) {
+        final filterString = '(${blockedIds.join(',')})';
+        queryBuilder = queryBuilder.filter('id', 'not.in', filterString);
+      }
+
+      // 5. Thực thi query
+      final response = await queryBuilder.limit(20);
+
+      final List<UserModel> results = (response as List)
+          .map((data) => UserModel.fromSearch(data))
+          .toList();
+
       final friendIds = _localSearchResults.map((f) => f.id).toSet();
       final filteredGlobal = results.where((u) => !friendIds.contains(u.id)).toList();
 
       if (mounted) {
-        setState(() { 
-          _globalSearchResults = filteredGlobal; 
-          _isGlobalLoading = false; 
+        setState(() {
+          _globalSearchResults = filteredGlobal;
+          _isGlobalLoading = false;
         });
       }
     } catch (e) {
+      debugPrint('Lỗi tìm kiếm: $e');
       if (mounted) setState(() => _isGlobalLoading = false);
     }
   }
