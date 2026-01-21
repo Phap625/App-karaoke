@@ -1,24 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:shimmer/shimmer.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
 import '../../../models/user_model.dart';
 import '../../../models/message_model.dart';
 import '../../widgets/chat_item.dart';
 import '../../../services/auth_service.dart';
-import 'chat_screen.dart';
+import '../../../services/notification_service.dart';
+import '../../../services/message_service.dart'; // [MỚI] Import MessageService
 import '../../widgets/friends_sidebar.dart';
+import 'chat_screen.dart';
 
 class MessagesTab extends StatefulWidget {
   const MessagesTab({super.key});
 
   @override
-  State<MessagesTab> createState() => _MessagesTabState();
+  State<MessagesTab> createState() => MessagesTabState();
 }
 
-class _MessagesTabState extends State<MessagesTab> {
+class MessagesTabState extends State<MessagesTab> {
   final _supabase = Supabase.instance.client;
   final TextEditingController _searchController = TextEditingController();
-  StreamSubscription? _msgSubscription;
+
+  // Realtime channel để lắng nghe tin nhắn mới
+  RealtimeChannel? _msgChannel;
 
   bool _isGuest = false;
   bool _isSidebarOpen = false;
@@ -50,9 +55,16 @@ class _MessagesTabState extends State<MessagesTab> {
     }
   }
 
+  Future<void> refresh() async {
+    if (mounted) {
+      setState(() => _isLoadingChats = true);
+      await _fetchRecentChats(isRefresh: true);
+    }
+  }
+
   @override
   void dispose() {
-    _msgSubscription?.cancel();
+    if (_msgChannel != null) _supabase.removeChannel(_msgChannel!);
     _searchController.dispose();
     super.dispose();
   }
@@ -60,15 +72,33 @@ class _MessagesTabState extends State<MessagesTab> {
   void _setupRealtimeMessages() {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) return;
-    _msgSubscription = _supabase
-        .from('messages')
-        .stream(primaryKey: ['message_id'])
-        .eq('receiver_id', userId)
-        .listen((_) => _fetchRecentChats(isRefresh: true, showLoading: false));
+
+    if (_msgChannel != null) _supabase.removeChannel(_msgChannel!);
+
+    _msgChannel = _supabase.channel('messages_tab_realtime')
+        .onPostgresChanges(
+      event: PostgresChangeEvent.all,
+      schema: 'public',
+      table: 'messages',
+      filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'receiver_id',
+          value: userId
+      ),
+      callback: (payload) {
+        if (mounted) {
+          _fetchRecentChats(isRefresh: true, showLoading: false);
+        }
+      },
+    )
+        .subscribe();
   }
 
   Future<void> _fetchRecentChats({bool isRefresh = false, bool showLoading = true}) async {
-    if (_isGuest) return;
+    if (_isGuest) {
+      if(mounted) setState(() => _isLoadingChats = false);
+      return;
+    }
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) return;
 
@@ -82,18 +112,11 @@ class _MessagesTabState extends State<MessagesTab> {
     }
 
     try {
-      final data = await _supabase.rpc(
-        'get_recent_chats_v2',
-        params: {
-          'current_user_id': userId,
-          'limit_count': _chatLimit,
-          'offset_count': _chatOffset,
-        },
+      final newChats = await MessageService.instance.getRecentChats(
+        userId: userId,
+        limit: _chatLimit,
+        offset: _chatOffset,
       );
-
-      final List<ChatPreviewModel> newChats = (data as List)
-          .map((e) => ChatPreviewModel.fromJson(e))
-          .toList();
 
       if (mounted) {
         setState(() {
@@ -114,11 +137,11 @@ class _MessagesTabState extends State<MessagesTab> {
   }
 
   Future<void> _fetchFriends() async {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) return;
+
     try {
-      final userId = _supabase.auth.currentUser?.id;
-      if (userId == null) return;
-      final response = await _supabase.from('friends_view').select().eq('user_id', userId);
-      final List<UserModel> loadedFriends = (response as List).map((data) => UserModel.fromFriendView(data)).toList();
+      final loadedFriends = await MessageService.instance.getFriends(userId);
       if (mounted) setState(() => _allFriends = loadedFriends);
     } catch (e) {
       debugPrint("Lỗi tải bạn bè: $e");
@@ -135,7 +158,7 @@ class _MessagesTabState extends State<MessagesTab> {
         final lowerQuery = query.toLowerCase();
         _localSearchResults = _allFriends.where((user) {
           return (user.fullName ?? "").toLowerCase().contains(lowerQuery) ||
-                 (user.username ?? "").toLowerCase().contains(lowerQuery);
+              (user.username ?? "").toLowerCase().contains(lowerQuery);
         }).toList();
       }
     });
@@ -152,44 +175,8 @@ class _MessagesTabState extends State<MessagesTab> {
     });
 
     try {
-      final currentUserId = _supabase.auth.currentUser?.id;
-      if (currentUserId == null) return;
-
-      // 1. Lấy danh sách ID những người MÌNH ĐÃ CHẶN
-      final blockedData = await _supabase
-          .from('blocked_users')
-          .select('blocked_id')
-          .eq('blocker_id', currentUserId);
-
-      final List<String> blockedIds = (blockedData as List)
-          .map((item) => item['blocked_id'] as String)
-          .toList();
-
-      // 2. Chuẩn bị thời gian hiện tại để so sánh lock
-      final String now = DateTime.now().toUtc().toIso8601String();
-
-      // 3. Xây dựng Query
-      var queryBuilder = _supabase
-          .from('users')
-          .select()
-          .or('username.ilike.%$query%, full_name.ilike.%$query%')
-          .eq('role', 'user')
-          .neq('id', currentUserId)
-          .or('locked_until.is.null,locked_until.lt.$now');
-
-      if (blockedIds.isNotEmpty) {
-        final filterString = '(${blockedIds.join(',')})';
-        queryBuilder = queryBuilder.filter('id', 'not.in', filterString);
-      }
-
-      // 5. Thực thi query
-      final response = await queryBuilder.limit(20);
-
-      final List<UserModel> results = (response as List)
-          .map((data) => UserModel.fromSearch(data))
-          .toList();
-
-      final friendIds = _localSearchResults.map((f) => f.id).toSet();
+      final results = await MessageService.instance.searchUsersGlobal(query);
+      final friendIds = _allFriends.map((f) => f.id).toSet();
       final filteredGlobal = results.where((u) => !friendIds.contains(u.id)).toList();
 
       if (mounted) {
@@ -206,6 +193,9 @@ class _MessagesTabState extends State<MessagesTab> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isGuest) {
+      return _buildGuestPlaceholder();
+    }
     return Stack(
       children: [
         Column(
@@ -222,6 +212,48 @@ class _MessagesTabState extends State<MessagesTab> {
     );
   }
 
+  Widget _buildGuestPlaceholder() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.lock_outline_rounded, size: 80, color: Colors.grey[300]),
+            const SizedBox(height: 20),
+            const Text(
+              "Đăng nhập để nhắn tin",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              "Kết nối với bạn bè và chia sẻ những khoảnh khắc thú vị ngay bây giờ.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey, fontSize: 14),
+            ),
+            const SizedBox(height: 30),
+            SizedBox(
+              width: double.infinity,
+              height: 45,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF00CC),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                ),
+                child: const Text("Đăng nhập", style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSearchHeader() {
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -232,6 +264,7 @@ class _MessagesTabState extends State<MessagesTab> {
               controller: _searchController,
               onChanged: _onSearchChanged,
               onSubmitted: (_) => _searchGlobal(),
+              enabled: !_isGuest,
               decoration: InputDecoration(
                 hintText: "Tìm bạn bè, username...",
                 prefixIcon: const Icon(Icons.search),
@@ -245,7 +278,9 @@ class _MessagesTabState extends State<MessagesTab> {
           ),
           const SizedBox(width: 10),
           IconButton(
-            onPressed: () => setState(() => _isSidebarOpen = true),
+            onPressed:_isGuest
+                ? null
+                : () => setState(() => _isSidebarOpen = true),
             icon: const Icon(Icons.people_alt_outlined, color: Color(0xFFFF00CC)),
             style: IconButton.styleFrom(backgroundColor: Colors.grey[100]),
           ),
@@ -255,16 +290,36 @@ class _MessagesTabState extends State<MessagesTab> {
   }
 
   Widget _buildRecentChatsView() {
-    if (_isLoadingChats) return const Center(child: CircularProgressIndicator());
-    if (_recentChats.isEmpty) return _buildEmptyState();
+    if (_isLoadingChats) {
+      return _buildSkeletonList();
+    }
 
     return RefreshIndicator(
-      onRefresh: () => _fetchRecentChats(isRefresh: true),
-      child: ListView.builder(
+      onRefresh: () async {
+        setState(() => _isLoadingChats = true);
+        await _fetchRecentChats(isRefresh: true);
+        NotificationService.instance.fetchCounts();
+      },
+      child: _recentChats.isEmpty
+          ? LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: SizedBox(
+            height: constraints.maxHeight,
+            child: _buildEmptyState(),
+          ),
+        ),
+      )
+          : ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
         itemCount: _recentChats.length + (_hasMoreChats ? 1 : 0),
         itemBuilder: (context, index) {
           if (index == _recentChats.length) {
-            _fetchRecentChats();
+            if (!_isLoadingMoreChats) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _fetchRecentChats();
+              });
+            }
             return const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator(strokeWidth: 2)));
           }
           final chat = _recentChats[index];
@@ -272,10 +327,51 @@ class _MessagesTabState extends State<MessagesTab> {
             chat: chat,
             onTap: () async {
               await Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(targetUser: UserModel(id: chat.partnerId, fullName: chat.fullName, avatarUrl: chat.avatarUrl, role: 'user'))));
-              _fetchRecentChats(isRefresh: true, showLoading: false);
+              if (mounted) {
+                NotificationService.instance.fetchCounts();
+                _fetchRecentChats(isRefresh: true, showLoading: false);
+              }
             },
             onDeleteChat: (id) => _fetchRecentChats(isRefresh: true, showLoading: false),
             onBlockUser: (id) => _fetchRecentChats(isRefresh: true, showLoading: false),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSkeletonList() {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[300]!,
+      highlightColor: Colors.grey[100]!,
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemCount: 10,
+        itemBuilder: (context, index) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                const CircleAvatar(radius: 28, backgroundColor: Colors.white),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Container(width: 120, height: 14, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
+                          Container(width: 40, height: 10, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Container(width: double.infinity, height: 12, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           );
         },
       ),
@@ -289,8 +385,8 @@ class _MessagesTabState extends State<MessagesTab> {
           const Padding(padding: EdgeInsets.fromLTRB(16, 16, 16, 8), child: Text("Bạn bè", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey))),
           ..._localSearchResults.map((u) => _buildUserItem(u, isFriend: true)),
         ],
-        
-        if (!_showGlobalResults && _searchController.text.isNotEmpty) 
+
+        if (!_showGlobalResults && _searchController.text.isNotEmpty)
           ListTile(
             leading: const Icon(Icons.public, color: Colors.blue),
             title: Text("Tìm kiếm '${_searchController.text}'"),
@@ -299,11 +395,11 @@ class _MessagesTabState extends State<MessagesTab> {
           ),
 
         if (_isGlobalLoading) const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator())),
-        
+
         if (_showGlobalResults) ...[
           const Padding(padding: EdgeInsets.fromLTRB(16, 16, 16, 8), child: Text("Người lạ", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey))),
           if (_globalSearchResults.isEmpty && !_isGlobalLoading)
-             const Padding(padding: EdgeInsets.all(20), child: Center(child: Text("Không tìm thấy người dùng này", style: TextStyle(color: Colors.grey)))),
+            const Padding(padding: EdgeInsets.all(20), child: Center(child: Text("Không tìm thấy người dùng này", style: TextStyle(color: Colors.grey)))),
           ..._globalSearchResults.map((u) => _buildUserItem(u, isFriend: false)),
         ],
       ],
@@ -312,13 +408,22 @@ class _MessagesTabState extends State<MessagesTab> {
 
   Widget _buildUserItem(UserModel user, {required bool isFriend}) {
     return ListTile(
-      leading: CircleAvatar(
-        backgroundImage: user.avatarUrl != null && user.avatarUrl!.isNotEmpty ? NetworkImage(user.avatarUrl!) : null,
-        child: (user.avatarUrl == null || user.avatarUrl!.isEmpty) ? Text(user.fullName?[0] ?? "?") : null,
-      ),
-      title: Text(user.fullName ?? "Người dùng"),
-      subtitle: Text("@${user.username ?? 'user'}${isFriend ? ' • Bạn bè' : ''}"),
-      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(targetUser: user))),
+        leading: CircleAvatar(
+          backgroundImage: user.avatarUrl != null && user.avatarUrl!.isNotEmpty ? NetworkImage(user.avatarUrl!) : null,
+          child: (user.avatarUrl == null || user.avatarUrl!.isEmpty) ? Text(user.fullName?[0] ?? "?") : null,
+        ),
+        title: Text(user.fullName ?? "Người dùng"),
+        subtitle: Text("@${user.username ?? 'user'}${isFriend ? ' • Bạn bè' : ''}"),
+        onTap: () async {
+          await Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => ChatScreen(targetUser: user))
+          );
+          if (mounted) {
+            _fetchRecentChats(isRefresh: true, showLoading: false);
+            NotificationService.instance.fetchCounts();
+          }
+        }
     );
   }
 

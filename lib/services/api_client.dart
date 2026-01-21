@@ -10,7 +10,7 @@ class ApiClient {
   static final ApiClient instance = ApiClient._internal();
 
   late final Dio dio;
-  static final String baseUrl = dotenv.env['BASE_URL'] ?? 'http://localhost:3000';
+  static final String baseUrl = dotenv.env['BASE_URL'] ?? '';
 
   ApiClient._internal() {
     BaseOptions options = BaseOptions(

@@ -18,6 +18,8 @@ class UserModel {
   final String? region;
   @JsonKey(name: 'last_active_at')
   final String? lastActiveAt;
+  @JsonKey(name: 'locked_until')
+  final String? lockedUntilString;
 
   // Các trường số liệu
   final int followersCount;
@@ -38,11 +40,22 @@ class UserModel {
     this.gender,
     this.region,
     this.lastActiveAt,
+    this.lockedUntilString,
     this.followersCount = 0,
     this.followingCount = 0,
     this.likesCount = 0,
     this.isFriend = false,
   });
+
+  bool get isLocked {
+    if (lockedUntilString == null) return false;
+    try {
+      final lockedUntil = DateTime.parse(lockedUntilString!);
+      return lockedUntil.isAfter(DateTime.now());
+    } catch (e) {
+      return false;
+    }
+  }
 
   // Factory mặc định (Dùng cho bảng 'users')
   factory UserModel.fromJson(Map<String, dynamic> json) {
@@ -57,6 +70,7 @@ class UserModel {
       gender: json['gender'] as String?,
       region: json['region'] as String?,
       lastActiveAt: json['last_active_at'] as String?,
+      lockedUntilString: json['locked_until'] as String?,
       followersCount: json['followers_count'] != null ? json['followers_count'] as int : 0,
       followingCount: json['following_count'] != null ? json['following_count'] as int : 0,
       likesCount: json['likes_count'] != null ? json['likes_count'] as int : 0,

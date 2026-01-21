@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
 import '../../utils/token_manager.dart';
 import '../../utils/user_manager.dart';
 import '../../services/user_service.dart';
@@ -17,7 +16,7 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
-  bool _hasNavigated = false;
+  bool _isProcessing = false;
   Timer? _safetyValveTimer;
   final BaseService _baseService = BaseService();
   StreamSubscription<AuthState>? _authSubscription;
@@ -25,17 +24,15 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-
-    _safetyValveTimer = Timer(const Duration(seconds: 20), () {
-      if (!_hasNavigated && mounted) {
+    _safetyValveTimer = Timer(const Duration(seconds: 15), () {
+      if (!_isProcessing && mounted) {
         debugPrint("SPLASH: 🚨 Safety Valve kích hoạt -> Ép về Login");
         _navigateToLogin(message: "Phản hồi quá lâu, vui lòng đăng nhập lại.");
       }
     });
-
     UserManager.instance.setLoginProcess(true);
-    _setupAuthListener();
     _checkAppState();
+    _setupAuthListener();
   }
 
   @override
@@ -47,8 +44,8 @@ class _SplashScreenState extends State<SplashScreen> {
 
   void _setupAuthListener() {
     _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
-      if (data.event == AuthChangeEvent.signedIn || data.event == AuthChangeEvent.tokenRefreshed) {
-        if (data.session != null && !_hasNavigated) {
+      if (!_isProcessing && (data.event == AuthChangeEvent.signedIn || data.event == AuthChangeEvent.tokenRefreshed)) {
+        if (data.session != null) {
           debugPrint("SPLASH: 🎯 Auth Event Detected -> Vào luồng chính");
           _processLoggedInUser(data.session!);
         }
@@ -57,8 +54,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   void _navigateToLogin({String? message}) {
-    if (!mounted || _hasNavigated) return;
-    _hasNavigated = true;
+    if (!mounted) return;
     _safetyValveTimer?.cancel();
     _authSubscription?.cancel();
 
@@ -67,33 +63,32 @@ class _SplashScreenState extends State<SplashScreen> {
       MaterialPageRoute(
         builder: (context) => LoginScreen(
           initialErrorMessage: message,
-          onLoginSuccess: (bool isSuccess) {
-            if (isSuccess) Navigator.pushReplacementNamed(context, '/home');
-          },
         ),
       ),
     );
   }
 
   void _navigateToHome() {
-    if (!mounted || _hasNavigated) return;
-    _hasNavigated = true;
+    if (!mounted) return;
     _safetyValveTimer?.cancel();
     _authSubscription?.cancel();
-
     debugPrint("SPLASH: ✅ Mọi thứ OK -> Vào Home");
     Navigator.pushReplacementNamed(context, '/home');
   }
 
   Future<void> _processLoggedInUser(Session session) async {
+    if (_isProcessing) return;
+    _isProcessing = true;
+
     try {
       debugPrint("SPLASH: 2. Người dùng đã có Session -> Bắt đầu đồng bộ...");
       UserManager.instance.setLoginProcess(true);
+
+      // Đồng bộ Session ID
       final sessionId = await UserManager.instance.syncSessionFromToken(session.accessToken);
 
       if (sessionId.isNotEmpty) {
         debugPrint("SPLASH: 🛠️ Đang ghi đè Session ID ($sessionId) lên Server...");
-
         await Supabase.instance.client.from('users').update({
           'last_active_at': DateTime.now().toUtc().toIso8601String(),
           'current_session_id': sessionId,
@@ -120,29 +115,45 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _checkAppState() async {
+    if (_isProcessing) return;
+
     try {
-      await Future.delayed(const Duration(milliseconds: 200));
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      if (_isProcessing) return;
 
       final session = Supabase.instance.client.auth.currentSession;
 
+      // Ưu tiên 1: Session RAM có sẵn
       if (session != null) {
         await _processLoggedInUser(session);
         return;
       }
 
+      // Ưu tiên 2: Token trong Disk
       final localToken = await TokenManager.instance.getAccessToken();
       if (localToken != null && localToken.isNotEmpty) {
-        final recovered = await AuthService.instance.recoverSession();
-        if (recovered && Supabase.instance.client.auth.currentSession != null) {
-          await _processLoggedInUser(Supabase.instance.client.auth.currentSession!);
+        try {
+          final recovered = await AuthService.instance.recoverSession();
+          if (recovered && Supabase.instance.client.auth.currentSession != null) {
+            if (!_isProcessing) {
+              await _processLoggedInUser(Supabase.instance.client.auth.currentSession!);
+            }
+            return;
+          }
+        } catch(e){
+          debugPrint("SPLASH: Token lỗi -> Login");
+          await AuthService.instance.logout();
+          _navigateToLogin();
           return;
         }
       }
 
-      debugPrint("SPLASH: Chưa thấy token -> Đợi Deep Link thêm chút...");
+      // Ưu tiên 3: Deep Link
+      debugPrint("SPLASH: Chưa thấy token -> Đợi Deep Link...");
       await Future.delayed(const Duration(seconds: 2));
 
-      if (Supabase.instance.client.auth.currentSession == null && !_hasNavigated) {
+      if (!_isProcessing && Supabase.instance.client.auth.currentSession == null) {
         UserManager.instance.setLoginProcess(false);
         debugPrint("SPLASH: Timeout chờ Deep Link -> Login");
         _navigateToLogin();
@@ -155,7 +166,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _handleError(dynamic e) async {
-    if (_hasNavigated) return;
+    if (!mounted) return;
 
     String errorMsg = e.toString();
     debugPrint("SPLASH: ❌ Lỗi: $errorMsg");
@@ -168,8 +179,7 @@ class _SplashScreenState extends State<SplashScreen> {
       _navigateToLogin(message: errorMsg);
       return;
     }
-
-    _navigateToLogin(message: "Lỗi kết nối hoặc phiên hết hạn.");
+    _navigateToLogin(message: "Phiên đăng nhập hết hạn.");
   }
 
   @override

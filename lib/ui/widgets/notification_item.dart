@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:karaoke/models/user_model.dart';
+import 'package:karaoke/ui/screens/me/user_profile_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/notification_model.dart';
+import '../screens/moments/moment_detail_screen.dart';
 
 class NotificationItem extends StatefulWidget {
   final NotificationModel notification;
@@ -64,8 +67,35 @@ class _NotificationItemState extends State<NotificationItem> {
     }
   }
 
-  Future<String?> _fetchActorAvatar() async {
-    if (widget.notification.actorAvatarUrl != null) return widget.notification.actorAvatarUrl;
+  void _handleNavigation() async {
+    _markAsRead();
+    final type = widget.notification.type;
+    final momentId = widget.notification.momentId;
+    final actorId = widget.notification.actorId;
+    if (type == 'follow' && actorId != null) {
+      Navigator.push(context, MaterialPageRoute(
+        builder: (_) => UserProfileScreen(user: UserModel(id: actorId, role: 'user')),
+      ));
+      debugPrint("Nav đến Profile User: $actorId");
+    } else if ((type == 'like' || type == 'comment') && momentId != null) {
+      Navigator.push(context, MaterialPageRoute(
+        builder: (_) => MomentDetailScreen(momentId: momentId),
+      ));
+      debugPrint("Nav đến Moment ID: $momentId");
+
+    } else {
+      setState(() {
+        _isExpanded = !_isExpanded;
+      });
+      debugPrint("Không xác định đích đến");
+    }
+  }
+
+  String? _getAvatarUrl() {
+    return widget.notification.actorAvatarUrl;
+  }
+
+  Future<String?> _fetchActorAvatarLocal() async {
     if (widget.notification.actorId == null) return null;
     try {
       final data = await Supabase.instance.client
@@ -74,11 +104,8 @@ class _NotificationItemState extends State<NotificationItem> {
           .eq('id', widget.notification.actorId!)
           .single();
       return data['avatar_url'] as String?;
-    } catch (e) {
-      return null;
-    }
+    } catch (e) { return null; }
   }
-
   @override
   Widget build(BuildContext context) {
     final bool isUnreadLocal = !_isRead;
@@ -96,12 +123,7 @@ class _NotificationItemState extends State<NotificationItem> {
         return await _deleteNotification(context);
       },
       child: InkWell(
-        onTap: () {
-          _markAsRead();
-          setState(() {
-            _isExpanded = !_isExpanded;
-          });
-        },
+        onTap: _handleNavigation,
         child: Container(
           color: isUnreadLocal ? const Color(0xFFF0F7FF) : Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -137,7 +159,7 @@ class _NotificationItemState extends State<NotificationItem> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      _formatTime(widget.notification.createdAt),
+                      _formatTime(widget.notification.updatedAt),
                       style: TextStyle(
                         fontSize: 12,
                         color: isUnreadLocal ? const Color(0xFFFF00CC) : Colors.grey[500],
@@ -162,6 +184,8 @@ class _NotificationItemState extends State<NotificationItem> {
   }
 
   Widget _buildAvatarStack() {
+    final avatarUrl = _getAvatarUrl();
+
     return SizedBox(
       width: 52,
       height: 52,
@@ -175,10 +199,12 @@ class _NotificationItemState extends State<NotificationItem> {
                 color: Colors.grey.shade100,
               ),
               child: ClipOval(
-                child: FutureBuilder<String?>(
-                  future: _fetchActorAvatar(),
+                child: (avatarUrl != null && avatarUrl.isNotEmpty)
+                    ? Image.network(avatarUrl, fit: BoxFit.cover)
+                    : FutureBuilder<String?>(
+                  future: _fetchActorAvatarLocal(),
                   builder: (context, snapshot) {
-                    if (snapshot.hasData && snapshot.data != null && snapshot.data!.isNotEmpty) {
+                    if (snapshot.hasData && snapshot.data != null) {
                       return Image.network(snapshot.data!, fit: BoxFit.cover);
                     }
                     return Icon(Icons.person, color: Colors.grey.shade400, size: 30);
@@ -187,6 +213,7 @@ class _NotificationItemState extends State<NotificationItem> {
               ),
             ),
           ),
+          // Icon nhỏ ở góc (Like/Comment/Follow)
           Positioned(
             right: 0,
             bottom: 0,

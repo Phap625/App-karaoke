@@ -17,7 +17,7 @@ class UserService extends BaseService{
 
   final SupabaseClient _supabase = Supabase.instance.client;
 
-  // --- Lấy thông tin profile từ bảng 'users' của Supabase ---
+  // --- Lấy thông tin user ---
   Future<UserModel> getUserProfile() async {
     return await safeExecution(() async {
       final user = _supabase.auth.currentUser;
@@ -43,7 +43,25 @@ class UserService extends BaseService{
     });
   }
 
-  // --- LẤY DANH SÁCH BẠN BÈ (FOLLOW CHÉO) ---
+  // --- Lấy thông tin user bằng ID ---
+  Future<UserModel?> getUserById(String userId) async {
+    return await safeExecution(() async {
+      try {
+        final data = await _supabase
+            .from('users')
+            .select()
+            .eq('id', userId)
+            .single();
+
+        return UserModel.fromJson(data);
+      } catch (e) {
+        debugPrint("Lỗi lấy user detail ($userId): $e");
+        return null;
+      }
+    });
+  }
+
+  // --- Lấy danh sách bạn bè ---
   Future<List<UserModel>> getFriendsList() async {
     return await safeExecution(() async {
       try {
@@ -64,7 +82,7 @@ class UserService extends BaseService{
     });
   }
 
-  // --- KIỂM TRA TRẠNG THÁI CHẶN ---
+  // --- Kiểm tra trạng thái chặn ---
   Future<BlockStatus> checkBlockStatus(String myId, String otherId) async {
     try {
       final response = await _supabase
@@ -90,7 +108,7 @@ class UserService extends BaseService{
     }
   }
 
-  // --- CHẶN NGƯỜI DÙNG ---
+  // --- Chặn người dùng ---
   Future<void> blockUser(String myId, String targetId) async {
     try {
       await _supabase.from('blocked_users').insert({
@@ -109,7 +127,7 @@ class UserService extends BaseService{
     }
   }
 
-  // --- BỎ CHẶN NGƯỜI DÙNG ---
+  // --- Bỏ chặn người dùng ---
   Future<void> unblockUser(String myId, String targetId) async {
     try {
       await _supabase
@@ -130,7 +148,7 @@ class UserService extends BaseService{
     }
   }
 
-  // --- LẤY DANH SÁCH BỊ CHẶN ---
+  // --- Lấy danh sách bị chặn ---
   Future<List<UserModel>> fetchBlockedUsers(String myId) async {
     try {
       final blockedData = await _supabase
@@ -156,7 +174,7 @@ class UserService extends BaseService{
     }
   }
 
-  // --- LẤY DANH SÁCH FOLLOWING/FOLLOWER ---
+  // --- Lấy danh sách following/follower ---
   Future<List<UserModel>> fetchFollowList({required String targetUserId, required String type}) async {
     String foreignKey;
     String columnToFilter;
@@ -183,7 +201,7 @@ class UserService extends BaseService{
     }
   }
 
-  // --- LẤY ĐỀ XUẤT ---
+  // --- Lấy đề xuất ---
   Future<List<UserModel>> fetchSuggestions({String? currentProfileViewingId}) async {
     final currentUser = _supabase.auth.currentUser;
     if (currentUser == null) return [];
@@ -247,6 +265,25 @@ class UserService extends BaseService{
     } catch (e) {
       debugPrint("UserService - fetchSuggestions error: $e");
       return [];
+    }
+  }
+
+  // --- Lấy Avatar của user hiện tại---
+  Future<String?> getCurrentUserAvatar() async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) return null;
+
+      final data = await _supabase
+          .from('users')
+          .select('avatar_url')
+          .eq('id', userId)
+          .single();
+
+      return data['avatar_url'] as String?;
+    } catch (e) {
+      debugPrint("🔴 Lỗi lấy avatar user: $e");
+      return null;
     }
   }
 

@@ -3,7 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
 import '../../../models/user_model.dart';
 import '../../../models/message_model.dart';
-import '../../../services/notification_service.dart';
+import '../../../services/chat_service.dart';
 import '../../../services/user_service.dart';
 import '../me/user_profile_screen.dart';
 
@@ -19,7 +19,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-
+  RealtimeChannel? _statusChannel;
   final _supabase = Supabase.instance.client;
   late final String _myId;
   bool _blockedByMe = false;
@@ -37,15 +37,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _myId = _supabase.auth.currentUser!.id;
 
     _checkStatuses();
-    _updateChatStatus(widget.targetUser.id);
+    ChatService.instance.updateChatStatus(_myId, widget.targetUser.id);
     _subscribeToMessages();
+    _subscribeToReadStatus();
   }
 
   @override
   void dispose() {
-    _updateChatStatus(null);
+    ChatService.instance.updateChatStatus(_myId, null);
     WidgetsBinding.instance.removeObserver(this);
     _messagesSubscription?.cancel();
+    if (_statusChannel != null) _supabase.removeChannel(_statusChannel!);
     _scrollController.dispose();
     super.dispose();
   }
@@ -63,25 +65,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final myId = _supabase.auth.currentUser?.id;
     if (myId == null) return;
 
-    final blockStatus = await UserService.instance.checkBlockStatus(myId, widget.targetUser.id);
+    final results = await Future.wait([
+      UserService.instance.checkBlockStatus(myId, widget.targetUser.id),
+      ChatService.instance.checkUserLockStatus(widget.targetUser.id),
+    ]);
 
-    bool isLocked = false;
-    try {
-      final userData = await _supabase
-          .from('users')
-          .select('locked_until')
-          .eq('id', widget.targetUser.id)
-          .single();
-
-      if (userData['locked_until'] != null) {
-        final lockedUntil = DateTime.parse(userData['locked_until']);
-        if (lockedUntil.isAfter(DateTime.now())) {
-          isLocked = true;
-        }
-      }
-    } catch (e) {
-      debugPrint("Lỗi check lock status: $e");
-    }
+    final blockStatus = results[0] as BlockStatus;
+    final isLocked = results[1] as bool;
 
     if (mounted) {
       setState(() {
@@ -91,6 +81,36 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _isLoadingStatus = false;
       });
     }
+  }
+
+  void _subscribeToReadStatus() {
+    _statusChannel = _supabase.channel('chat_status_${widget.targetUser.id}')
+        .onPostgresChanges(
+      event: PostgresChangeEvent.update,
+      schema: 'public',
+      table: 'messages',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'sender_id',
+        value: _myId,
+      ),
+      callback: (payload) {
+        final newRecord = payload.newRecord;
+        if (newRecord['receiver_id'] == widget.targetUser.id) {
+          final updatedId = newRecord['message_id'];
+          final isRead = newRecord['is_read'];
+          if (mounted) {
+            setState(() {
+              final index = _messages.indexWhere((m) => m.messageId == updatedId);
+              if (index != -1) {
+                _messages[index] = _messages[index].copyWith(isRead: true);
+              }
+            });
+          }
+        }
+      },
+    )
+        .subscribe();
   }
 
   // --- LOGIC MESSAGES ---
@@ -116,7 +136,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           _messages = remoteMessages;
 
           if (_messages.isNotEmpty && _messages.first.receiverId == _myId && !_messages.first.isRead) {
-            _markMessagesAsRead();
+            ChatService.instance.markAsRead(myId: _myId, partnerId: widget.targetUser.id);
           }
         });
       }
@@ -126,7 +146,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   // Gửi tin nhắn
   Future<void> _sendMessage() async {
     if (_blockedByMe || _blockedByThem || _isTargetLocked) return;
-
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
     final tempId = DateTime.now().millisecondsSinceEpoch;
@@ -143,26 +162,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _messages.insert(0, newMessage);
       _messageController.clear();
     });
-
     _scrollToBottom();
 
     try {
-      await _supabase.from('messages').insert({
-        'sender_id': _myId,
-        'receiver_id': widget.targetUser.id,
-        'content': text,
-      });
-      _sendNotificationIfNeeded(text);
-
+      await ChatService.instance.sendMessage(
+          myId: _myId,
+          targetId: widget.targetUser.id,
+          content: text
+      );
     } catch (e) {
       if (mounted) {
         setState(() {
           _messages.removeWhere((m) => m.messageId == tempId);
           _messageController.text = text;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Lỗi gửi tin nhắn: $e")),
-        );
       }
     }
   }
@@ -179,24 +192,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _sendNotificationIfNeeded(String text) async {
-    try {
-      final statusData = await _supabase
-          .from('user_chat_status')
-          .select('current_partner_id')
-          .eq('user_id', widget.targetUser.id)
-          .maybeSingle();
-
-      final String? chattingWithId = statusData?['current_partner_id'];
-      if (chattingWithId != _myId) {
-        NotificationService.instance.sendChatNotification(
-          receiverId: widget.targetUser.id,
-          content: text,
-        );
-      }
-    } catch (_) {}
-  }
-
   Future<void> _handleUnblock() async {
     try {
       await UserService.instance.unblockUser(_myId, widget.targetUser.id);
@@ -206,19 +201,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã bỏ chặn người dùng')));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Lỗi kết nối!")));
-    }
-  }
-
-  Future<void> _markMessagesAsRead() async {
-    try {
-      await _supabase
-          .from('messages')
-          .update({'is_read': true})
-          .eq('sender_id', widget.targetUser.id)
-          .eq('receiver_id', _myId)
-          .eq('is_read', false);
-    } catch (e) {
-      debugPrint("Lỗi cập nhật đã đọc: $e");
     }
   }
 
@@ -262,10 +244,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
     if (confirm == true) {
       try {
-        await _supabase.from('deleted_conversations').upsert(
-          {'user_id': _myId, 'partner_id': widget.targetUser.id, 'deleted_at': DateTime.now().toUtc().toIso8601String()},
-          onConflict: 'user_id, partner_id',
-        );
+        await ChatService.instance.deleteConversation(_myId, widget.targetUser.id);
         if (mounted) Navigator.pop(context, true);
       } catch (e) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Lỗi kết nối!")));

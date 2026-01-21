@@ -13,7 +13,7 @@ class UserManager {
   // --- VARIABLES ---
   StreamSubscription<List<Map<String, dynamic>>>? _userDbSubscription;
   StreamSubscription<AuthState>? _authSubscription;
-
+  bool _isInitialized = false;
   Timer? _keepAliveTimer;
   DateTime? _lastDbUpdate;
   bool _isUpdating = false;
@@ -36,22 +36,21 @@ class UserManager {
   // PHẦN 1: INIT & DISPOSE
   // =============================
   Future<void> init() async {
-    // 1. Kiểm tra user hiện tại
+    if (_isInitialized) {
+      debugPrint("🛡️ User Manager: Đã chạy rồi -> Bỏ qua lệnh init.");
+      return;
+    }
     final session = Supabase.instance.client.auth.currentSession;
     if (session == null) {
       debugPrint("🛡️ User Manager: Không có user, bỏ qua init.");
       return;
     }
-
-    // 2. Đồng bộ Session ID ngay lập tức
+    _isInitialized = true;
     await _getLocalSessionId();
     if (_cachedLocalSessionId == null) {
       await syncSessionFromToken(session.accessToken);
     }
-
     debugPrint("🛡️ User Manager: Đã khởi động (Heartbeat + Session ID Guard)");
-
-    // 3. Bắt đầu các logic bảo vệ
     notifyApiActivity();
     _setupAuthListener();
     _setupAccountListener();
@@ -62,6 +61,7 @@ class UserManager {
     _userDbSubscription?.cancel();
     _authSubscription?.cancel();
     _cachedLocalSessionId = null;
+    _isInitialized = false;
     debugPrint("🛡️ User Manager: Đã dừng.");
   }
 

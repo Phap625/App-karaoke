@@ -25,6 +25,24 @@ class MessageModel {
     this.sentAt,
   });
 
+  MessageModel copyWith({
+    dynamic messageId,
+    String? senderId,
+    String? receiverId,
+    String? content,
+    bool? isRead,
+    DateTime? sentAt,
+  }) {
+    return MessageModel(
+      messageId: messageId ?? this.messageId,
+      senderId: senderId ?? this.senderId,
+      receiverId: receiverId ?? this.receiverId,
+      content: content ?? this.content,
+      isRead: isRead ?? this.isRead,
+      sentAt: sentAt ?? this.sentAt,
+    );
+  }
+
   factory MessageModel.fromJson(Map<String, dynamic> json) => _$MessageModelFromJson(json);
   Map<String, dynamic> toJson() => _$MessageModelToJson(this);
 }

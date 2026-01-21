@@ -32,16 +32,20 @@ import 'utils/token_manager.dart';
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
-  await dotenv.load(fileName: ".env");
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (e) {
+    debugPrint("⚠️ Lỗi load .env");
+  }
 
   // KHỞI TẠO SUPABASE
   Map<String, String> supabaseConfig = await _fetchSupabaseConfig();
   debugPrint("🚀 Đang kết nối Supabase: ${supabaseConfig['isBackup'] == 'true' ? 'BACKUP' : 'MAIN'}");
 
   await Supabase.initialize(
-    url: supabaseConfig['url']!,
-    anonKey: supabaseConfig['key']!,
+    url: supabaseConfig['url'] ?? '',
+    anonKey: supabaseConfig['key']?? '',
   );
   if (!kIsWeb) {
     await _initOneSignalSafe();
@@ -61,8 +65,8 @@ void main() async {
 Future<Map<String, String>> _fetchSupabaseConfig() async {
   final String serverUrl = dotenv.env['BASE_URL'] ?? "http://localhost:3000";
 
-  String currentUrl = dotenv.env['SUPABASE_URL']!;
-  String currentKey = dotenv.env['SUPABASE_ANON_KEY']!;
+  String currentUrl = dotenv.env['SUPABASE_URL'] ?? '';
+  String currentKey = dotenv.env['SUPABASE_ANON_KEY'] ?? '';
   String isBackup = "false";
 
   try {
@@ -120,13 +124,7 @@ class MyApp extends StatelessWidget {
 
         // ĐỊNH NGHĨA ROUTES
         routes: {
-          '/login': (context) => LoginScreen(
-            onLoginSuccess: (isSuccess) {
-              if (isSuccess) {
-                Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
-              }
-            },
-          ),
+          '/login': (context) => const LoginScreen(),
 
           '/register': (context) => RegisterScreen(
             onRegisterSuccess: () {
@@ -167,9 +165,7 @@ class MyApp extends StatelessWidget {
   // --- HÀM XỬ LÝ ĐĂNG XUẤT ---
   void _handleLogout(BuildContext context) async {
     try {
-      // RESET DỮ LIỆU THÔNG BÁO VỀ 0 NGAY LẬP TỨC
       NotificationService.instance.clear();
-      
       await AuthService.instance.logout();
       await TokenManager.instance.clearAuth();
       if (context.mounted) {
