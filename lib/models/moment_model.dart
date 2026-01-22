@@ -26,17 +26,46 @@ class Moment {
   });
 
   factory Moment.fromJson(Map<String, dynamic> json) {
+    int parseInt(dynamic value) {
+      if (value == null) return 0;
+      if (value is int) return value;
+      if (value is double) return value.toInt();
+      if (value is String) return int.tryParse(value) ?? 0;
+      return 0;
+    }
+
+    String getUserName() {
+      if (json['user_full_name'] != null) return json['user_full_name'];
+      if (json['users'] != null && json['users']['full_name'] != null) {
+        return json['users']['full_name'];
+      }
+      return 'Người dùng';
+    }
+
+    String? getUserAvatar() {
+      if (json['user_avatar_url'] != null) return json['user_avatar_url'];
+      if (json['users'] != null) return json['users']['avatar_url'];
+      return null;
+    }
+
     return Moment(
-      id: json['moment_id'],
-      userId: json['user_id'],
-      audioUrl: json['audio_url'],
+      id: parseInt(json['moment_id']),
+      userId: json['user_id'] ?? '',
+      audioUrl: json['audio_url'] ?? '',
       description: json['description'],
-      createdAt: DateTime.parse(json['created_at']),
+
+      createdAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'].toString())
+          : DateTime.now(),
+
       visibility: json['visibility'] ?? 'public',
-      userName: json['users'] != null ? json['users']['full_name'] : 'Người dùng',
-      userAvatar: json['users'] != null ? json['users']['avatar_url'] : null,
-      likesCount: json['likes_count'] ?? 0,
-      commentsCount: json['comments_count'] ?? 0,
+
+      userName: getUserName(),
+      userAvatar: getUserAvatar(),
+
+      likesCount: parseInt(json['likes_count']),
+      commentsCount: parseInt(json['comments_count']),
+
       isLiked: json['is_liked'] ?? false,
     );
   }

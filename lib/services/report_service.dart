@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-enum ReportTargetType { user, song, moment }
+enum ReportTargetType { user, song, moment, comment }
 
 class ReportService {
   static final ReportService instance = ReportService._internal();
@@ -31,9 +31,18 @@ class ReportService {
     "Khác"
   ];
 
-  // 3. Lý do báo cáo Moment (Bài viết)
+  // 3. Lý do báo cáo Moment (Bài đăng)
   static const List<String> momentReasons = [
     "Ngôn từ gây thù ghét/Xúc phạm",
+    "Thông tin sai lệch",
+    "Quảng cáo trái phép",
+    "Nội dung vi phạm tiêu chuẩn cộng đồng",
+    "Khác"
+  ];
+
+  // 4. Lý do báo cáo Comment (Bình luận)
+  static const List<String> commentReasons = [
+    "Ngôn từ lăng mạ, xúc phạm",
     "Thông tin sai lệch",
     "Quảng cáo trái phép",
     "Khác"

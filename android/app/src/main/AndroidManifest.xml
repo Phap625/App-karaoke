@@ -43,6 +43,14 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <meta-data
+            android:name="com.onesignal.NotificationServiceExtension"
+            android:value="com.onesignal.example.NotificationServiceExtension" />
+        <meta-data
+            android:name="com.onesignal.NotificationAccentColor.DEFAULT"
+            android:value="FFFF00CC" /> <meta-data
+        android:name="com.onesignal.NotificationIcon.Small"
+        android:resource="@drawable/ic_stat_icon_notification" />
     </application>
 
     <queries>

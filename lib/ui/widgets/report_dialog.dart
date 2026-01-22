@@ -47,6 +47,8 @@ class _ReportContentState extends State<_ReportContent> {
         return ReportService.songReasons;
       case ReportTargetType.moment:
         return ReportService.momentReasons;
+      case ReportTargetType.comment:
+        return ReportService.commentReasons;
     }
   }
 

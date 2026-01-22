@@ -4,6 +4,7 @@
 *.keystore
 *.p12
 key.properties
+deploy.ps1
 
 # -----------------------
 # Miscellaneous

@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../mailbox/chat_screen.dart';
 import '../../../models/user_model.dart';
+import '../../../models/moment_model.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/user_service.dart';
 import '../../../services/report_service.dart';
+import '../../../services/moment_service.dart';
 import '../../widgets/report_dialog.dart';
+import '../../widgets/moment_item.dart';
 import 'follow_list_screen.dart';
 import 'me_screen.dart';
 
@@ -29,14 +32,17 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   bool _isFriend = false;
   bool _isLoadingFollow = false;
   bool _blockedByMe = false;
-
-  // Biến kiểm tra trạng thái khóa
   bool _isLocked = false;
-
-  // Stats
   int _followerCount = 0;
   int _followingCount = 0;
   int _likeCount = 0;
+  List<Moment> _moments = [];
+  bool _isLoadingMoments = true;
+  bool _isLoadMore = false;
+  bool _hasMoreData = true;
+  bool _isGuest = false;
+  final int _pageSize = 10;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
@@ -46,8 +52,24 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     _followerCount = widget.user.followersCount;
     _followingCount = widget.user.followingCount;
     _likeCount = widget.user.likesCount;
-
+    _isGuest = AuthService.instance.isGuest;
     _loadAllData();
+
+    _scrollController.addListener(() {
+      if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200 &&
+          !_isLoadMore &&
+          _hasMoreData &&
+          !_isLocked) {
+        _loadMoreMoments();
+      }
+    });
+  }
+
+  // --- Hàm xử lý xóa Moment khỏi list UI ---
+  void _handleDeleteMoment(int momentId) {
+    setState(() {
+      _moments.removeWhere((m) => m.id == momentId);
+    });
   }
 
   Future<void> _loadAllData() async {
@@ -57,6 +79,60 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       _fetchStats(),
       _fetchBlockStatus(),
     ]);
+    if (!_isLocked) {
+      _fetchUserMoments();
+    } else {
+      if (mounted) setState(() => _isLoadingMoments = false);
+    }
+  }
+
+  // --- Lấy moment ---
+  Future<void> _fetchUserMoments() async {
+    if (!mounted) return;
+    setState(() => _isLoadingMoments = true);
+    try {
+      final data = await MomentService.instance.getUserMoments(
+          _displayUser.id,
+          limit: _pageSize,
+          offset: 0
+      );
+      if (mounted) {
+        setState(() {
+          _moments = data;
+          _hasMoreData = data.length >= _pageSize;
+          _isLoadingMoments = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Lỗi fetch user moments: $e");
+      if (mounted) setState(() => _isLoadingMoments = false);
+    }
+  }
+
+  // --- Lấy thêm moment ---
+  Future<void> _loadMoreMoments() async {
+    setState(() => _isLoadMore = true);
+    try {
+      final currentLength = _moments.length;
+      final data = await MomentService.instance.getUserMoments(
+          _displayUser.id,
+          limit: _pageSize,
+          offset: currentLength
+      );
+      if (mounted) {
+        setState(() {
+          if (data.isEmpty) {
+            _hasMoreData = false;
+          } else {
+            _moments.addAll(data);
+            if (data.length < _pageSize) _hasMoreData = false;
+          }
+          _isLoadMore = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadMore = false);
+    }
   }
 
   // --- Kiểm tra trạng thái chặn ---
@@ -64,12 +140,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null) return;
 
-    final status = await UserService.instance.checkBlockStatus(currentUserId, widget.user.id);
-
-    if (mounted) {
-      setState(() {
-        _blockedByMe = status.blockedByMe;
-      });
+    try {
+      final status = await UserService.instance.checkBlockStatus(currentUserId, widget.user.id);
+      if (mounted) {
+        setState(() {
+          _blockedByMe = status.blockedByMe;
+        });
+      }
+    } catch (e) {
     }
   }
 
@@ -109,7 +187,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           );
         }
       } catch (e) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Lỗi chặn người dùng!")));
       }
     }
   }
@@ -148,7 +225,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           );
         }
       } catch (e) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Lỗi kết nối!")));
       }
     }
   }
@@ -163,34 +239,22 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
-  // 1. LẤY CHI TIẾT USER (Cập nhật check khóa)
+  // --- Lấy chi tiết user (Cập nhật check khóa) ---
   Future<void> _fetchUserDetails() async {
     try {
-      final data = await _supabase
-          .from('users')
-          .select()
-          .eq('id', widget.user.id)
-          .single();
-
-      if (mounted) {
+      final userModel = await UserService.instance.getUserById(widget.user.id);
+      if (mounted && userModel != null) {
         setState(() {
-          _displayUser = UserModel.fromJson(data);
-
-          // Kiểm tra logic khóa
-          if (data['locked_until'] != null) {
-            final lockedUntil = DateTime.parse(data['locked_until']);
-            if (lockedUntil.isAfter(DateTime.now())) {
-              _isLocked = true;
-            }
-          }
+          _displayUser = userModel;
+          _isLocked = userModel.isLocked;
         });
       }
     } catch (e) {
-      debugPrint("Lỗi lấy user detail: $e");
+      // Ignored
     }
   }
 
-  // 2. Kiểm tra follow
+  // --- Kiểm tra follow ---
   Future<void> _checkFollowStatus() async {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null) return;
@@ -211,9 +275,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
-  // 3. Lấy số liệu
+  // --- Lấy số liệu ---
   Future<void> _fetchStats() async {
-    if (_isLocked) return; // Nếu bị khóa thì không cần fetch stats
+    if (_isLocked) return;
     try {
       final followers = await _supabase.from('follows').count().eq('following_id', widget.user.id);
       final following = await _supabase.from('follows').count().eq('follower_id', widget.user.id);
@@ -223,13 +287,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
-  // 4. Xử lý nút Follow
+  // --- Xử lý nút Follow ---
   Future<void> _handleFollowAction() async {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null || _isLoadingFollow) return;
 
     if (_isFollowing) {
-      // UNFOLLOW LOGIC
       final String dialogTitle = _isFriend
           ? "Huỷ kết bạn với ${_displayUser.fullName}?"
           : "Huỷ theo dõi ${_displayUser.fullName}?";
@@ -250,44 +313,45 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
       if (confirm == true) {
         setState(() { _isLoadingFollow = true; _isFollowing = false; _isFriend = false; _followerCount--; });
-        bool success = await NotificationService.instance.unfollowUser(targetUserId: widget.user.id);
-        if (!success && mounted) {
-          setState(() { _isFollowing = true; _isFriend = _isFollowedByTarget; _followerCount++; _isLoadingFollow = false; });
-        } else {
+        try {
+          bool success = await NotificationService.instance.unfollowUser(targetUserId: widget.user.id);
+          if (!success && mounted) {
+            setState(() { _isFollowing = true; _isFriend = _isFollowedByTarget; _followerCount++; });
+          }
+        } catch(e) {
+          if (mounted) setState(() { _isFollowing = true; _isFriend = _isFollowedByTarget; _followerCount++; });
+        } finally {
           if(mounted) setState(() => _isLoadingFollow = false);
         }
       }
     } else {
-      // FOLLOW LOGIC (Chỉ chạy nếu không bị khóa)
+      // FOLLOW LOGIC
       if (_isLocked) return;
 
       setState(() { _isLoadingFollow = true; _isFollowing = true; if (_isFollowedByTarget) _isFriend = true; _followerCount++; });
-      bool success = await NotificationService.instance.followUser(targetUserId: widget.user.id);
-      if (!success && mounted) {
-        setState(() { _isFollowing = false; _isFriend = false; _followerCount--; _isLoadingFollow = false; });
-      } else {
+      try {
+        bool success = await NotificationService.instance.followUser(targetUserId: widget.user.id);
+        if (!success && mounted) {
+          setState(() { _isFollowing = false; _isFriend = false; _followerCount--; });
+        }
+      } catch (e) {
+        if (mounted) setState(() { _isFollowing = false; _isFriend = false; _followerCount--; });
+      } finally {
         if(mounted) setState(() => _isLoadingFollow = false);
       }
     }
   }
 
+  // --- Hàm chuyển tap ---
   void _navigateToFollowList(int initialTab) {
-    if (_isLocked) return; // Không cho xem danh sách follow nếu bị khóa
+    if (_isLocked) return;
     Navigator.push(context, MaterialPageRoute(builder: (context) => FollowListScreen(targetUser: _displayUser, initialTabIndex: initialTab)));
   }
 
   @override
   Widget build(BuildContext context) {
     final currentUserId = _supabase.auth.currentUser?.id;
-
-    if (currentUserId != null && widget.user.id == currentUserId) {
-      return MeScreen(
-        onLogoutClick: () async {
-          await AuthService.instance.logout();
-          if (context.mounted) Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
-        },
-      );
-    }
+    final bool isMe = (currentUserId != null && widget.user.id == currentUserId);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -299,236 +363,274 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          // Nếu bị khóa, ẩn menu action (block/report)
-          if (!_isLocked)
+          if (!_isLocked && !_isGuest)
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert, color: Colors.black),
               onSelected: (value) {
-                if (value == 'block') {
+                if (value == 'settings') {
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => MeScreen(
+                    onLogoutClick: () async {
+                      await AuthService.instance.logout();
+                      if (context.mounted) {
+                        Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+                      }}
+                    ,),),
+                  );
+                } else if (value == 'block') {
                   _confirmBlockUser();
                 } else if (value == 'report') {
                   _handleReportUser();
                 }
               },
-              itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                if (!_blockedByMe)
-                  const PopupMenuItem<String>(
-                    value: 'block',
-                    child: Row(
-                      children: [
-                        Icon(Icons.block, color: Colors.red, size: 20),
-                        SizedBox(width: 10),
-                        Text('Chặn người dùng', style: TextStyle(color: Colors.red)),
-                      ],
+              itemBuilder: (BuildContext context) {
+                if (isMe) {
+                  return <PopupMenuEntry<String>>[
+                    const PopupMenuItem<String>(
+                      value: 'settings',
+                      child: Row(
+                        children: [
+                          Icon(Icons.settings, color: Colors.black87, size: 20),
+                          SizedBox(width: 10),
+                          Text('Cài đặt'),
+                        ],
+                      ),
                     ),
-                  ),
-                const PopupMenuItem<String>(
-                  value: 'report',
-                  child: Row(
-                    children: [
-                      Icon(Icons.flag, color: Colors.black87, size: 20),
-                      SizedBox(width: 10),
-                      Text('Báo cáo'),
-                    ],
-                  ),
-                ),
-              ],
+                  ];
+                } else {
+                  return <PopupMenuEntry<String>>[
+                    if (!_blockedByMe)
+                      const PopupMenuItem<String>(
+                        value: 'block',
+                        child: Row(
+                          children: [
+                            Icon(Icons.block, color: Colors.red, size: 20),
+                            SizedBox(width: 10),
+                            Text('Chặn người dùng', style: TextStyle(color: Colors.red)),
+                          ],
+                        ),
+                      ),
+                    const PopupMenuItem<String>(
+                      value: 'report',
+                      child: Row(
+                        children: [
+                          Icon(Icons.flag, color: Colors.black87, size: 20),
+                          SizedBox(width: 10),
+                          Text('Báo cáo'),
+                        ],
+                      ),
+                    ),
+                  ];
+                }
+              },
             )
         ],
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            const SizedBox(height: 10),
-            // Avatar
-            Container(
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.grey.shade200, width: 2)),
-              child: CircleAvatar(
-                radius: 50,
-                backgroundColor: Colors.grey.shade200,
-                // Nếu bị khóa thì không hiện ảnh, chỉ hiện placeholder
-                backgroundImage: (!_isLocked && _displayUser.avatarUrl != null && _displayUser.avatarUrl!.isNotEmpty)
-                    ? NetworkImage(_displayUser.avatarUrl!)
-                    : null,
-                child: (_isLocked || _displayUser.avatarUrl == null || _displayUser.avatarUrl!.isEmpty)
-                    ? Icon(Icons.person, size: 50, color: Colors.grey.shade400) // Avatar trắng/icon khi bị khóa
-                    : null,
+      body: CustomScrollView(
+        controller: _scrollController,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          // 1. PHẦN HEADER PROFILE
+          SliverToBoxAdapter(
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
+                // Avatar
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.grey.shade200, width: 2)),
+                  child: CircleAvatar(
+                    radius: 50,
+                    backgroundColor: Colors.grey.shade200,
+                    backgroundImage: (!_isLocked && _displayUser.avatarUrl != null && _displayUser.avatarUrl!.isNotEmpty)
+                        ? NetworkImage(_displayUser.avatarUrl!)
+                        : null,
+                    child: (_isLocked || _displayUser.avatarUrl == null || _displayUser.avatarUrl!.isEmpty)
+                        ? Icon(Icons.person, size: 50, color: Colors.grey.shade400)
+                        : null,
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Tên
+                Text(_displayUser.fullName ?? "Người dùng", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black)),
+                const SizedBox(height: 4),
+                Text("@${_displayUser.username ?? 'unknown'}", style: TextStyle(fontSize: 15, color: Colors.grey[600])),
+                const SizedBox(height: 12),
+
+                if (_isLocked) ...[
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8)),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.lock_outline, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text("Tài khoản này đang bị tạm khoá", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 50),
+                ] else ...[
+                  _buildUserInfoSection(),
+                  const SizedBox(height: 24),
+                  if (!isMe && !_isGuest) _buildActionButtons(),
+                  const SizedBox(height: 30),
+                  const Divider(thickness: 1, height: 1),
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text("Khoảnh khắc", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ]
+              ],
+            ),
+          ),
+
+          // 2. PHẦN DANH SÁCH MOMENTS
+          if (!_isLocked)
+            _isLoadingMoments
+                ? SliverToBoxAdapter(child: _buildSkeletonLoader())
+                : _moments.isEmpty
+                ? SliverToBoxAdapter(child: _buildEmptyState())
+                : SliverList(
+              delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                  return MomentItem(
+                    moment: _moments[index],
+                    // [MỚI] Truyền callback để xoá UI
+                    onDeleted: () => _handleDeleteMoment(_moments[index].id),
+                  );
+                },
+                childCount: _moments.length,
               ),
             ),
-            const SizedBox(height: 16),
 
-            // Tên và Username
-            Text(_displayUser.fullName ?? "Người dùng", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black)),
-            const SizedBox(height: 4),
-            Text("@${_displayUser.username ?? 'unknown'}", style: TextStyle(fontSize: 15, color: Colors.grey[600])),
-            const SizedBox(height: 12),
+          if (_isLoadMore)
+            const SliverToBoxAdapter(
+              child: Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator())),
+            ),
 
-            // --- NỘI DUNG KHI BỊ KHÓA ---
-            if (_isLocked) ...[
-              const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.lock_outline, color: Colors.red),
-                    SizedBox(width: 8),
-                    Text(
-                      "Tài khoản này đang bị tạm khoá",
-                      style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-              ),
-            ]
-            // --- NỘI DUNG BÌNH THƯỜNG ---
-            else ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (_displayUser.gender != null) ...[
-                    Icon(_displayUser.gender == 'male' ? Icons.male : Icons.female, size: 16, color: _displayUser.gender == 'male' ? Colors.blue : Colors.pink),
-                    const SizedBox(width: 4),
-                    Text(_displayUser.gender == 'male' ? "Nam" : "Nữ"),
-                    const SizedBox(width: 15),
-                  ],
-                  if (_displayUser.region != null && _displayUser.region!.isNotEmpty) ...[
-                    const Icon(Icons.location_on, size: 16, color: Colors.grey),
-                    const SizedBox(width: 4),
-                    Text(_displayUser.region!),
-                  ]
-                ],
-              ),
-              if (_displayUser.bio != null && _displayUser.bio!.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 40),
-                  child: Text(_displayUser.bio!, textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: Colors.grey[800], height: 1.4), maxLines: 3, overflow: TextOverflow.ellipsis),
-                ),
-              ],
-              const SizedBox(height: 24),
-              // Stats
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 40),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _buildStatItem("Đang follow", _followingCount, () => _navigateToFollowList(0)),
-                    Container(width: 1, height: 30, color: Colors.grey.shade300),
-                    _buildStatItem("Follower", _followerCount, () => _navigateToFollowList(1)),
-                    Container(width: 1, height: 30, color: Colors.grey.shade300),
-                    _buildStatItem("Thích", _likeCount, () {}),
-                  ],
-                ),
-              ),
+          const SliverToBoxAdapter(child: SizedBox(height: 50)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUserInfoSection() {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (_displayUser.gender != null) ...[
+              Icon(_displayUser.gender == 'Nam' ? Icons.male : Icons.female, size: 16, color: _displayUser.gender == 'male' ? Colors.blue : Colors.pink),
+              const SizedBox(width: 4),
+              Text(_displayUser.gender ?? "Bí mật"),
+              const SizedBox(width: 15),
             ],
-
-            const SizedBox(height: 24),
-
-            // --- BUTTONS ---
-            if (!(_isLocked && !_isFollowing))
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: 45,
-                        child: _blockedByMe
-                            ? ElevatedButton(
-                          onPressed: _handleUnblockAction,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.black87,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          child: const Text("Bỏ chặn", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                        )
-                            : ElevatedButton(
-                          onPressed: _isLoadingFollow ? null : _handleFollowAction,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: (_isFriend || _isFollowing) ? Colors.grey[200] : const Color(0xFFFF00CC),
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          child: _isLoadingFollow
-                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                              : Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                _isFriend ? Icons.people_alt_rounded : (_isFollowing ? Icons.check : Icons.add),
-                                color: (_isFriend || _isFollowing) ? Colors.black87 : Colors.white,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                _isFriend ? "Bạn bè" : (_isFollowing ? "Đang follow" : "Follow"),
-                                style: TextStyle(color: (_isFriend || _isFollowing) ? Colors.black87 : Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // Nếu KHÔNG bị khóa thì mới hiện nút chat
-                    if (!_isLocked) ...[
-                      const SizedBox(width: 12),
-                      SizedBox(
-                        height: 45,
-                        width: 45,
-                        child: ElevatedButton(
-                          onPressed: () {
-                            Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(targetUser: _displayUser)));
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.grey[100],
-                            elevation: 0,
-                            padding: EdgeInsets.zero,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          child: const Icon(Icons.chat_bubble_outline, color: Colors.black87),
-                        ),
-                      ),
-                    ]
-                  ],
-                ),
-              ),
-
-            // --- MOMENTS (Chỉ hiện khi không khóa) ---
-            if (!_isLocked) ...[
-              const SizedBox(height: 30),
-              const Divider(thickness: 1, height: 1),
-              // Moments
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text("Khoảnh khắc", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 20),
-                    Center(
-                      child: Column(
-                        children: [
-                          Icon(Icons.image_not_supported_outlined, size: 60, color: Colors.grey[300]),
-                          const SizedBox(height: 10),
-                          Text("${_displayUser.fullName} chưa có khoảnh khắc nào.", style: TextStyle(color: Colors.grey[500])),
-                        ],
-                      ),
-                    )
-                  ],
-                ),
-              )
+            if (_displayUser.region != null && _displayUser.region!.isNotEmpty) ...[
+              const Icon(Icons.location_on, size: 16, color: Colors.grey),
+              const SizedBox(width: 4),
+              Text(_displayUser.region!),
             ]
           ],
         ),
+        if (_displayUser.bio != null && _displayUser.bio!.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: Text(_displayUser.bio!, textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: Colors.grey[800], height: 1.4), maxLines: 3, overflow: TextOverflow.ellipsis),
+          ),
+        ],
+        const SizedBox(height: 24),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildStatItem("Đang follow", _followingCount, () => _navigateToFollowList(0)),
+              Container(width: 1, height: 30, color: Colors.grey.shade300),
+              _buildStatItem("Follower", _followerCount, () => _navigateToFollowList(1)),
+              Container(width: 1, height: 30, color: Colors.grey.shade300),
+              _buildStatItem("Thích", _likeCount, () {}),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionButtons() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        children: [
+          Expanded(
+            child: SizedBox(
+              height: 45,
+              child: _blockedByMe
+                  ? ElevatedButton(
+                onPressed: _handleUnblockAction,
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.black87, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                child: const Text("Bỏ chặn", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+              )
+                  : ElevatedButton(
+                onPressed: _isLoadingFollow ? null : _handleFollowAction,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: (_isFriend || _isFollowing) ? Colors.grey[200] : const Color(0xFFFF00CC),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: _isLoadingFollow
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                    : Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(_isFriend ? Icons.people_alt_rounded : (_isFollowing ? Icons.check : Icons.add),
+                        color: (_isFriend || _isFollowing) ? Colors.black87 : Colors.white, size: 20),
+                    const SizedBox(width: 6),
+                    Text(_isFriend ? "Bạn bè" : (_isFollowing ? "Đang follow" : "Follow"),
+                        style: TextStyle(color: (_isFriend || _isFollowing) ? Colors.black87 : Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            height: 45, width: 45,
+            child: ElevatedButton(
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(targetUser: _displayUser))),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[100], elevation: 0, padding: EdgeInsets.zero, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+              child: const Icon(Icons.chat_bubble_outline, color: Colors.black87),
+            ),
+          )
+        ],
       ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 40),
+      child: Column(
+        children: [
+          Icon(Icons.image_not_supported_outlined, size: 60, color: Colors.grey[300]),
+          const SizedBox(height: 10),
+          Text("${_displayUser.fullName} chưa có khoảnh khắc nào.", style: TextStyle(color: Colors.grey[500])),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSkeletonLoader() {
+    return const Padding(
+      padding: EdgeInsets.all(20.0),
+      child: Center(child: CircularProgressIndicator()),
     );
   }
 

@@ -5,14 +5,19 @@ import 'package:timeago/timeago.dart' as timeago;
 import 'dart:async';
 import '../../models/moment_model.dart';
 import '../screens/me/user_profile_screen.dart';
+import '../screens/moments/create_moment_screen.dart';
 import '../../models/user_model.dart';
 import '../../services/moment_service.dart';
+import '../../services/report_service.dart';
+import '../../services/auth_service.dart';
+import 'report_dialog.dart';
 import 'comments_sheet.dart';
 
 class MomentItem extends StatefulWidget {
   final Moment moment;
+  final VoidCallback? onDeleted;
 
-  const MomentItem({super.key, required this.moment});
+  const MomentItem({super.key, required this.moment, this.onDeleted,});
 
   @override
   State<MomentItem> createState() => _MomentItemState();
@@ -26,18 +31,74 @@ class _MomentItemState extends State<MomentItem> {
   late bool _isLiked;
   late int _likesCount;
   late int _commentsCount;
+  bool _isGuest = false;
   RealtimeChannel? _subscription;
   Timer? _debounce;
-  final MomentService _service = MomentService();
+  late Moment _currentMoment;
+
 
   @override
   void initState() {
     super.initState();
+    _currentMoment = widget.moment;
     _setupAudio();
-    _isLiked = widget.moment.isLiked;
-    _likesCount = widget.moment.likesCount;
-    _commentsCount = widget.moment.commentsCount;
+    _isLiked = _currentMoment.isLiked;
+    _likesCount = _currentMoment.likesCount;
+    _commentsCount = _currentMoment.commentsCount;
+    _isGuest = AuthService.instance.isGuest;
     _subscribeToRealtimeChanges();
+  }
+
+
+  //  Hàm hiển thị thông báo yêu cầu đăng nhập
+  void _showGuestRestrictedDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Yêu cầu đăng nhập"),
+        content: const Text("Bạn cần đăng nhập tài khoản chính thức để thực hiện hành động này."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Đóng", style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              if (ctx.mounted) {
+                Navigator.of(ctx).pushNamedAndRemoveUntil('/login', (route) => false);
+              }
+            },
+            child: const Text("Đăng nhập / Đăng ký", style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant MomentItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.moment.likesCount != oldWidget.moment.likesCount ||
+        widget.moment.commentsCount != oldWidget.moment.commentsCount ||
+        widget.moment.isLiked != oldWidget.moment.isLiked) {
+      setState(() {
+        _currentMoment = widget.moment;
+        _likesCount = _currentMoment.likesCount;
+        _commentsCount = _currentMoment.commentsCount;
+        _isLiked = _currentMoment.isLiked;
+      });
+    }
+  }
+
+  Future<void> _refreshLocalData() async {
+    final newMoment = await MomentService.instance.getMomentById(_currentMoment.id);
+
+    if (newMoment != null && mounted) {
+      setState(() {
+        _currentMoment = newMoment;
+      });
+    }
   }
 
   void _setupAudio() {
@@ -55,7 +116,16 @@ class _MomentItemState extends State<MomentItem> {
     });
   }
 
+  bool get _isMyMoment {
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    return currentUserId != null && currentUserId == widget.moment.userId;
+  }
+
   void _toggleLike() {
+    if (_isGuest) {
+      _showGuestRestrictedDialog();
+      return;
+    }
     setState(() {
       _isLiked = !_isLiked;
       _likesCount += _isLiked ? 1 : -1;
@@ -64,7 +134,7 @@ class _MomentItemState extends State<MomentItem> {
 
     _debounce = Timer(const Duration(milliseconds: 900), () async {
       try {
-        await _service.toggleLike(widget.moment.id, _isLiked);
+        await MomentService.instance.toggleLike(widget.moment.id, _isLiked, widget.moment.userId);
 
       } catch (e) {
         debugPrint("Lỗi sync like: $e");
@@ -78,12 +148,134 @@ class _MomentItemState extends State<MomentItem> {
     });
   }
 
+  void _showOptionsMenu() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+              ),
+              const SizedBox(height: 20),
+
+              // --- TRƯỜNG HỢP 1: BÀI CỦA MÌNH (Sửa / Xóa) ---
+              if (_isMyMoment) ...[
+                ListTile(
+                  leading: const Icon(Icons.edit, color: Colors.blue),
+                  title: const Text("Chỉnh sửa bài viết"),
+                  onTap: () async {
+                    Navigator.pop(context); // Đóng menu bottom sheet
+
+                    // Mở màn hình Edit
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => CreateMomentScreen(
+                          selectedFile: null,
+                          editingMoment: widget.moment,
+                        ),
+                      ),
+                    );
+
+                    // Nếu edit thành công (result == true), ta cần làm mới dữ liệu
+                    if (result == true) {
+                      await _refreshLocalData();
+
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Đã cập nhật bài viết"))
+                        );
+                      }
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete, color: Colors.red),
+                  title: const Text("Xóa bài viết"),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _confirmDeleteMoment();
+                  },
+                ),
+              ],
+
+              // --- TRƯỜNG HỢP 2: BÀI NGƯỜI KHÁC (Báo cáo) ---
+              if (!_isMyMoment && !_isGuest)
+                ListTile(
+                  leading: const Icon(Icons.flag_outlined, color: Colors.orange),
+                  title: const Text("Báo cáo vi phạm"),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _openReportDialog();
+                  },
+                ),
+
+              const SizedBox(height: 10),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _confirmDeleteMoment() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Xóa bài viết?"),
+        content: const Text("Hành động này không thể hoàn tác."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Hủy")),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Xóa", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      try {
+        await MomentService.instance.deleteMoment(widget.moment.id);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Đã xóa bài viết.")));
+          widget.onDeleted?.call();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Lỗi xóa bài viết.")));
+        }
+      }
+    }
+  }
+
+  void _openReportDialog() {
+    ReportModal.show(
+      context,
+      targetType: ReportTargetType.moment,
+      targetId: widget.moment.id.toString(),
+      contentTitle: "Bài đăng của ${widget.moment.userName ?? 'Người dùng'}",
+    );
+  }
+
   void _showComments() async {
+    if (_isGuest) {
+      _showGuestRestrictedDialog();
+      return;
+    }
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => CommentsSheet(momentId: widget.moment.id),
+      builder: (context) => CommentsSheet(momentId: widget.moment.id, momentOwnerId: widget.moment.userId),
     );
     _refreshStats();
   }
@@ -122,16 +314,11 @@ class _MomentItemState extends State<MomentItem> {
   }
 
   Future<void> _refreshStats() async {
-    final stats = await MomentService().getMomentStats(widget.moment.id);
+    final stats = await MomentService.instance.getMomentStats(widget.moment.id);
     if (stats != null && mounted) {
       setState(() {
         _likesCount = stats['likes_count'];
         _commentsCount = stats['comments_count'];
-
-        // Lưu ý: is_liked có thể bị xung đột với Optimistic UI (nút bấm local)
-        // Nên ta chỉ update is_liked nếu user KHÔNG đang bấm liên tục
-        // Hoặc đơn giản là chỉ update count thôi.
-        // Ở đây mình update luôn để đồng bộ 100%.
         _isLiked = stats['is_liked'];
       });
     }
@@ -188,8 +375,9 @@ class _MomentItemState extends State<MomentItem> {
         children: [
           // Header: Avatar + Tên + Thời gian
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Bọc Avatar trong GestureDetector
+              // 1. Avatar
               GestureDetector(
                 onTap: _navigateToUserProfile,
                 child: CircleAvatar(
@@ -203,7 +391,7 @@ class _MomentItemState extends State<MomentItem> {
               ),
               const SizedBox(width: 12),
 
-              // Bọc phần tên trong GestureDetector (hoặc Expanded nếu muốn ấn cả vùng trống)
+              // 2. Tên & Thời gian
               Expanded(
                 child: GestureDetector(
                   onTap: _navigateToUserProfile,
@@ -230,6 +418,16 @@ class _MomentItemState extends State<MomentItem> {
                   ),
                 ),
               ),
+
+              // ---  NÚT MENU / REPORT ---
+              if(!_isGuest)
+                IconButton(
+                  icon: const Icon(Icons.more_vert, color: Colors.grey),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: _showOptionsMenu,
+                  tooltip: "Tùy chọn",
+                ),
             ],
           ),
 
@@ -311,9 +509,8 @@ class _MomentItemState extends State<MomentItem> {
 
           const SizedBox(height: 12),
 
-          // --- FOOTER: LIKE, COMMENT, SHARE ---
+          // --- FOOTER: LIKE, COMMENT ---
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               TextButton.icon(
                 onPressed: _toggleLike,
@@ -323,7 +520,7 @@ class _MomentItemState extends State<MomentItem> {
                 icon: Icon(_isLiked ? Icons.favorite : Icons.favorite_border, size: 20),
                 label: Text("$_likesCount", style: const TextStyle(fontSize: 13)),
               ),
-
+              const SizedBox(width: 36),
               // NÚT COMMENT
               TextButton.icon(
                 onPressed: _showComments,
@@ -331,7 +528,6 @@ class _MomentItemState extends State<MomentItem> {
                 icon: const Icon(Icons.comment_outlined, size: 20),
                 label: Text("$_commentsCount", style: const TextStyle(fontSize: 13)),
               ),
-              _buildActionBtn(Icons.share_outlined, "Chia sẻ"),
             ],
           ),
         ],
@@ -339,12 +535,4 @@ class _MomentItemState extends State<MomentItem> {
     );
   }
 
-  Widget _buildActionBtn(IconData icon, String label) {
-    return TextButton.icon(
-      onPressed: () {},
-      style: TextButton.styleFrom(foregroundColor: Colors.grey.shade600),
-      icon: Icon(icon, size: 20),
-      label: Text(label, style: const TextStyle(fontSize: 13)),
-    );
-  }
 }

@@ -5,12 +5,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
-  final Function(bool) onLoginSuccess;
   final String? initialErrorMessage;
 
   const LoginScreen({
     super.key,
-    required this.onLoginSuccess,
     this.initialErrorMessage,
   });
 
@@ -62,14 +60,20 @@ class _LoginScreenState extends State<LoginScreen> {
           if (kIsWeb) {
             try {
               await AuthService.instance.finalizeWebLogin(session);
+
             } catch (e) {
               debugPrint("⚠️ Lỗi finalize login web: $e");
             }
           }
-          widget.onLoginSuccess(true);
+          _navigateToHome();
         }
       }
     });
+  }
+
+  void _navigateToHome() {
+    if (!mounted) return;
+    Navigator.pushReplacementNamed(context, '/home');
   }
 
   @override
@@ -139,12 +143,11 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       await Future.delayed(const Duration(milliseconds: 500));
 
-      await AuthService.instance
-          .login(identifier: identifier, password: password);
+      await AuthService.instance.login(identifier: identifier, password: password);
 
       _showToast("Đăng nhập thành công!");
       _failedAttempts = 0;
-      widget.onLoginSuccess(true);
+      _navigateToHome();
 
     } catch (e) {
       _failedAttempts++;
@@ -182,7 +185,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // 📱 NẾU LÀ MOBILE: Chạy tiếp
       _showToast("Đăng nhập Google thành công!");
       _failedAttempts = 0;
-      widget.onLoginSuccess(true);
+      _navigateToHome();
 
     } catch (e) {
       _isManualLogin = false;
@@ -407,9 +410,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       setState(() => _isLoading = true);
                       try {
                         await AuthService.instance.loginAsGuest();
-                        if (context.mounted) {
-                          widget.onLoginSuccess(true);
-                        }
+                        _navigateToHome();
                       } catch (e) {
                         _isManualLogin = false;
                         _showToast("Lỗi đăng nhập khách");

@@ -69,9 +69,11 @@ class _SystemMessagesScreenState extends State<SystemMessagesScreen> {
       title: msg.title,
       message: msg.message,
       createdAt: msg.createdAt,
+      updatedAt: msg.updatedAt,
       isRead: true,
       type: msg.type,
       category: msg.category,
+      momentId: msg.momentId,
     );
 
     setState(() {
