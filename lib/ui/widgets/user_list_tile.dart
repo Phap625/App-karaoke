@@ -8,11 +8,13 @@ import '../../services/user_service.dart';
 class UserListTile extends StatefulWidget {
   final UserModel user;
   final bool showFollowButton;
+  final VoidCallback? onActionComplete;
 
   const UserListTile({
     super.key,
     required this.user,
-    this.showFollowButton = false
+    this.showFollowButton = false,
+    this.onActionComplete,
   });
 
   @override
@@ -145,6 +147,10 @@ class _UserListTileState extends State<UserListTile> {
       if (mounted) {
         setState(() => _isFollowing = oldState);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Lỗi kết nối!")));
+      }
+    } else {
+      if (widget.onActionComplete != null) {
+        widget.onActionComplete!();
       }
     }
   }

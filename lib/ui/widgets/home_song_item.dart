@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import '../../models/song_model.dart';
 
-class HomeSongCard extends StatelessWidget {
+class HomeSongItem extends StatelessWidget {
   final SongModel song;
   final bool isHorizontal;
   final int? rank;
   final VoidCallback? onTap;
 
-  const HomeSongCard({
+  const HomeSongItem({
     super.key,
     required this.song,
     this.isHorizontal = false,

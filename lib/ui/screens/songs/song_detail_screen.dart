@@ -19,7 +19,7 @@ import '../../../models/song_model.dart';
 import '../../../services/song_service.dart';
 import '../../../utils/lrc_parser.dart';
 import '../../../providers/songs_provider.dart';
-import '../../widgets/song_card.dart';
+import '../../widgets/song_item.dart';
 import '../../widgets/report_dialog.dart';
 import '../../../services/report_service.dart';
 
@@ -1629,122 +1629,123 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     final drawerWidth = MediaQuery.of(context).size.width * 0.7;
 
     return Scaffold(
-      key: _scaffoldKey,
-      endDrawer: SizedBox(
-        width: drawerWidth,
-        child: _buildSideSongList(),
-      ),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        centerTitle: true,
-        title: Column(
-          children: [
-            Text(
-              _song?.title ?? "Đang tải...",
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
-              maxLines: 1, overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              _song?.artistName ?? "",
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: Colors.white70),
-              maxLines: 1, overflow: TextOverflow.ellipsis,
-            ),
-          ],
+        key: _scaffoldKey,
+        resizeToAvoidBottomInset: false,
+        endDrawer: SizedBox(
+          width: drawerWidth,
+          child: _buildSideSongList(),
         ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: _onBackPressed,
-        ),
-        actions: [
-          Consumer<SongsProvider>(
-            builder: (context, provider, child) {
-              if (_song == null) return const SizedBox();
-
-              final isLiked = provider.isSongLiked(_song!.id);
-
-              return IconButton(
-                onPressed: () {
-                  provider.toggleLike(_song!.id);
-
-                  // 2. Hiện thông báo (UX)
-                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        !isLiked ? "Đã thêm vào yêu thích ❤️" : "Đã bỏ yêu thích 💔",
-                        textAlign: TextAlign.center,
-                      ),
-                      duration: const Duration(seconds: 1),
-                      backgroundColor: !isLiked ? Colors.green : Colors.grey,
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      margin: const EdgeInsets.all(50),
-                    ),
-                  );
-                },
-                icon: Icon(
-                  isLiked ? Icons.favorite : Icons.favorite_outline,
-                  color: isLiked ? Colors.red : Colors.white,
-                  size: 28,
-                ),
-              );
-            },
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      extendBodyBehindAppBar: true,
-      body: GestureDetector(
-        onHorizontalDragEnd: (details) {
-          if (details.primaryVelocity! < -500) {
-            _scaffoldKey.currentState?.openEndDrawer();
-          }
-        },
-      child: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Colors.black87, Colors.black],
-          ),
-        ),
-        child: Column(
-          children: [
-            SizedBox(height: appBarHeight + topPadding),
-            if (_sections.isNotEmpty) _buildSectionButtons(),
-            Expanded(
-              child: Stack(
-                children: [
-                  _buildLyricSection(),
-                  if (_isCountingDown)
-                    Container(
-                      color: Colors.black54,
-                      alignment: Alignment.center,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Text("Chuẩn bị...", style: TextStyle(color: Colors.white70, fontSize: 20)),
-                          const SizedBox(height: 10),
-                          Text(
-                            "$_countdownValue",
-                            style: const TextStyle(color: Color(0xFFFF00CC), fontSize: 80, fontWeight: FontWeight.bold, shadows: [Shadow(blurRadius: 20, color: Color(0xFFFF00CC), offset: Offset(0,0))]),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          centerTitle: true,
+          title: Column(
+            children: [
+              Text(
+                _song?.title ?? "Đang tải...",
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                maxLines: 1, overflow: TextOverflow.ellipsis,
               ),
+              const SizedBox(height: 4),
+              Text(
+                _song?.artistName ?? "",
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: Colors.white70),
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: _onBackPressed,
+          ),
+          actions: [
+            Consumer<SongsProvider>(
+              builder: (context, provider, child) {
+                if (_song == null) return const SizedBox();
+
+                final isLiked = provider.isSongLiked(_song!.id);
+
+                return IconButton(
+                  onPressed: () {
+                    provider.toggleLike(_song!.id);
+
+                    // 2. Hiện thông báo (UX)
+                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          !isLiked ? "Đã thêm vào yêu thích ❤️" : "Đã bỏ yêu thích 💔",
+                          textAlign: TextAlign.center,
+                        ),
+                        duration: const Duration(seconds: 1),
+                        backgroundColor: !isLiked ? Colors.green : Colors.grey,
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        margin: const EdgeInsets.all(50),
+                      ),
+                    );
+                  },
+                  icon: Icon(
+                    isLiked ? Icons.favorite : Icons.favorite_outline,
+                    color: isLiked ? Colors.red : Colors.white,
+                    size: 28,
+                  ),
+                );
+              },
             ),
-            Container(
-              padding: const EdgeInsets.only(bottom: 20, top: 10),
-              child: _buildControls(),
-            ),
+            const SizedBox(width: 8),
           ],
         ),
-      ),
-      )
+        extendBodyBehindAppBar: true,
+        body: GestureDetector(
+          onHorizontalDragEnd: (details) {
+            if (details.primaryVelocity! < -500) {
+              _scaffoldKey.currentState?.openEndDrawer();
+            }
+          },
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Colors.black87, Colors.black],
+            ),
+          ),
+          child: Column(
+            children: [
+              SizedBox(height: appBarHeight + topPadding),
+              if (_sections.isNotEmpty) _buildSectionButtons(),
+              Expanded(
+                child: Stack(
+                  children: [
+                    _buildLyricSection(),
+                    if (_isCountingDown)
+                      Container(
+                        color: Colors.black54,
+                        alignment: Alignment.center,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text("Chuẩn bị...", style: TextStyle(color: Colors.white70, fontSize: 20)),
+                            const SizedBox(height: 10),
+                            Text(
+                              "$_countdownValue",
+                              style: const TextStyle(color: Color(0xFFFF00CC), fontSize: 80, fontWeight: FontWeight.bold, shadows: [Shadow(blurRadius: 20, color: Color(0xFFFF00CC), offset: Offset(0,0))]),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.only(bottom: 20, top: 10),
+                child: _buildControls(),
+              ),
+            ],
+          ),
+        ),
+        )
     );
   }
 
@@ -1801,7 +1802,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
                     final song = displaySongs[index];
                     return SizedBox(
-                      child: SongCard(
+                      child: SongItem(
                         song: song,
                         isLiked: provider.isSongLiked(song.id),
                         onTap: () => _onSongSelectedFromDrawer(song),
@@ -1962,87 +1963,93 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
             var position = snapshotPosition.data ?? Duration.zero;
             if (position > duration) position = duration;
             IconData playIcon = Icons.play_arrow;
-            if (_isCompleted) playIcon = Icons.replay;
-            else if (_beatPlayer.playing) playIcon = Icons.pause;
+            if (_isCompleted) {
+              playIcon = Icons.replay;
+            } else if (_beatPlayer.playing){
+              playIcon = Icons.pause;
+            }
             final displayPosition = _isDraggingSeekBar ? Duration(milliseconds: _dragValue!.toInt()) : position;
 
             return Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      thumbColor: const Color(0xFFFF00CC),
-                      activeTrackColor: const Color(0xFFFF00CC),
-                      inactiveTrackColor: Colors.white24,
-                      trackHeight: 4,
-                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                    ),
-                    child: Slider(
-                      value: _isDraggingSeekBar ? _dragValue! : position.inMilliseconds.toDouble().clamp(0.0, duration.inMilliseconds.toDouble() > 0 ? duration.inMilliseconds.toDouble() : 0.0),
-                      max: duration.inMilliseconds.toDouble() > 0 ? duration.inMilliseconds.toDouble() : 1.0,
-                      onChangeStart: (value) => setState(() { _isDraggingSeekBar = true; _dragValue = value; }),
-                      onChanged: (value) => setState(() => _dragValue = value),
-                      onChangeEnd: (value) {
-                        setState(() { _isDraggingSeekBar = false; _dragValue = null; });
-                        _performSeek(value);
-                      },
-                    ),
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                child: SingleChildScrollView(
+                  physics: const NeverScrollableScrollPhysics(),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(_formatTime(displayPosition), style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                      Text(_formatTime(duration), style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      if (_isSessionStarted)
-                        IconButton(onPressed: _confirmRestartSession, iconSize: 30, tooltip: "Hát lại từ đầu", icon: const Icon(Icons.refresh_rounded, color: Colors.orangeAccent))
-                      else const SizedBox(width: 48),
-
-                      IconButton(onPressed: _showVolumeDialog, iconSize: 30, tooltip: "Chỉnh âm lượng", icon: const Icon(Icons.tune_rounded, color: Colors.white)),
-
-                      GestureDetector(
-                        onTap: _isSwitchingSection ? null : _togglePlayPause,
-                        child: Container(
-                          width: 70, height: 70,
-                          decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFFFF00CC), boxShadow: [BoxShadow(color: Color(0x66FF00CC), blurRadius: 20, spreadRadius: 2)]),
-                          child: Center(
-                            child: _isSwitchingSection
-                                ? const SizedBox(width: 30, height: 30, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
-                                : Icon(!_isSessionStarted ? Icons.fiber_manual_record_rounded : playIcon, color: Colors.white, size: !_isSessionStarted ? 45 : 38),
-                          ),
+                      SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          thumbColor: const Color(0xFFFF00CC),
+                          activeTrackColor: const Color(0xFFFF00CC),
+                          inactiveTrackColor: Colors.white24,
+                          trackHeight: 4,
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                        ),
+                        child: Slider(
+                          value: _isDraggingSeekBar ? _dragValue! : position.inMilliseconds.toDouble().clamp(0.0, duration.inMilliseconds.toDouble() > 0 ? duration.inMilliseconds.toDouble() : 0.0),
+                          max: duration.inMilliseconds.toDouble() > 0 ? duration.inMilliseconds.toDouble() : 1.0,
+                          onChangeStart: (value) => setState(() { _isDraggingSeekBar = true; _dragValue = value; }),
+                          onChanged: (value) => setState(() => _dragValue = value),
+                          onChangeEnd: (value) {
+                            setState(() { _isDraggingSeekBar = false; _dragValue = null; });
+                            _performSeek(value);
+                          },
                         ),
                       ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(_formatTime(displayPosition), style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                          Text(_formatTime(duration), style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          if (_isSessionStarted)
+                            IconButton(onPressed: _confirmRestartSession, iconSize: 30, tooltip: "Hát lại từ đầu", icon: const Icon(Icons.refresh_rounded, color: Colors.orangeAccent))
+                          else const SizedBox(width: 48),
 
-                      if (_isSessionStarted)
-                        Builder(builder: (context) {
-                          final bool canSave = _currentRecDuration.inSeconds >= 10;
-                          return IconButton(
-                            onPressed: canSave ? _finishRecordingSession : null,
-                            iconSize: 40,
-                            tooltip: canSave ? "Kết thúc & Lưu (${_formatTime(_currentRecDuration)})" : "Cần thu thêm ${10 - _currentRecDuration.inSeconds}s",
-                            icon: Icon(Icons.check_circle_rounded, color: canSave ? Colors.greenAccent : Colors.white24),
-                          );
-                        })
-                      else const SizedBox(width: 48),
+                          IconButton(onPressed: _showVolumeDialog, iconSize: 30, tooltip: "Chỉnh âm lượng", icon: const Icon(Icons.tune_rounded, color: Colors.white)),
 
-                      IconButton(
-                        onPressed: _toggleVocal,
-                        iconSize: 28,
-                        tooltip: "Bật/Tắt lời ca sĩ",
-                        icon: Icon(Icons.record_voice_over, color: _vocalVolume > 0 ? const Color(0xFFFF00CC) : Colors.white54),
+                          GestureDetector(
+                            onTap: _isSwitchingSection ? null : _togglePlayPause,
+                            child: Container(
+                              width: 70, height: 70,
+                              decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFFFF00CC), boxShadow: [BoxShadow(color: Color(0x66FF00CC), blurRadius: 20, spreadRadius: 2)]),
+                              child: Center(
+                                child: _isSwitchingSection
+                                    ? const SizedBox(width: 30, height: 30, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
+                                    : Icon(!_isSessionStarted ? Icons.fiber_manual_record_rounded : playIcon, color: Colors.white, size: !_isSessionStarted ? 45 : 38),
+                              ),
+                            ),
+                          ),
+
+                          if (_isSessionStarted)
+                            Builder(builder: (context) {
+                              final bool canSave = _currentRecDuration.inSeconds >= 10;
+                              return IconButton(
+                                onPressed: canSave ? _finishRecordingSession : null,
+                                iconSize: 40,
+                                tooltip: canSave ? "Kết thúc & Lưu (${_formatTime(_currentRecDuration)})" : "Cần thu thêm ${10 - _currentRecDuration.inSeconds}s",
+                                icon: Icon(Icons.check_circle_rounded, color: canSave ? Colors.greenAccent : Colors.white24),
+                              );
+                            })
+                          else const SizedBox(width: 48),
+
+                          IconButton(
+                            onPressed: _toggleVocal,
+                            iconSize: 28,
+                            tooltip: "Bật/Tắt lời ca sĩ",
+                            icon: Icon(Icons.record_voice_over, color: _vocalVolume > 0 ? const Color(0xFFFF00CC) : Colors.white54),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
-              ),
+                )
             );
           },
         );

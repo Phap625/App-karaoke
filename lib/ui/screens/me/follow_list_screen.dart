@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../models/user_model.dart';
 import '../../widgets/user_list_tile.dart';
 import '../../../services/user_service.dart';
+import '../../../providers/user_provider.dart';
 
 class FollowListScreen extends StatefulWidget {
   final UserModel targetUser; // Người mà chúng ta đang xem danh sách của họ
@@ -30,6 +32,10 @@ class _FollowListScreenState extends State<FollowListScreen> with SingleTickerPr
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _onTileActionComplete() {
+    context.read<UserProvider>().fetchUserProfile();
   }
 
   @override
@@ -86,6 +92,7 @@ class _FollowListScreenState extends State<FollowListScreen> with SingleTickerPr
             return UserListTile(
               user: users[index],
               showFollowButton: true,
+              onActionComplete: _onTileActionComplete,
             );
           },
         );
@@ -111,7 +118,8 @@ class _FollowListScreenState extends State<FollowListScreen> with SingleTickerPr
           itemCount: users.length,
           itemBuilder: (context, index) => UserListTile(
               user: users[index],
-              showFollowButton: true
+              showFollowButton: true,
+            onActionComplete: _onTileActionComplete,
           ),
         );
       },

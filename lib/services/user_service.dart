@@ -1,7 +1,12 @@
+import 'package:dio/dio.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/user_model.dart';
 import 'base_service.dart';
+import 'api_client.dart';
 
 
 class BlockStatus {
@@ -284,6 +289,82 @@ class UserService extends BaseService{
     } catch (e) {
       debugPrint("🔴 Lỗi lấy avatar user: $e");
       return null;
+    }
+  }
+
+  Future<void> updateUserProfile({
+    String? username,
+    String? fullName,
+    String? gender,
+    String? bio,
+    String? region,
+    XFile? avatarFile,
+  }) async {
+    return await safeExecution(() async {
+      String? newAvatarUrl;
+      // 1. Nếu có file ảnh -> Upload và lấy URL
+      if (avatarFile != null) {
+        newAvatarUrl = await _uploadAvatarToR2(avatarFile);
+      }
+
+      final body = {
+        if (username != null) "username": username,
+        if (fullName != null) "full_name": fullName,
+        if (gender != null) "gender": gender,
+        if (region != null) "region": region,
+        if (bio != null) "bio": bio,
+        if (newAvatarUrl != null) "avatarUrl": newAvatarUrl,
+      };
+
+      // 2. Gọi API update
+      await ApiClient.instance.dio.put('/api/user/upload/update-profile', data: body);
+      if (newAvatarUrl != null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('local_user_avatar', newAvatarUrl);
+      }
+    });
+  }
+
+  // --- Hàm phụ: Upload Avatar lên R2 ---
+  Future<String> _uploadAvatarToR2(XFile file) async {
+    try {
+      final fileName = file.name;
+      const String contentType = 'image/jpeg';
+
+      // A. Lấy Presigned URL từ Server
+      final response = await ApiClient.instance.dio.post('/api/user/upload/presigned-url',
+        data: {
+          "fileName": fileName,
+          "fileType": contentType,
+          "useType": "avatar"
+        },
+      );
+
+      if (response.data['success'] != true) {
+        throw Exception("Lỗi lấy link upload: ${response.data}");
+      }
+
+      final String uploadUrl = response.data['uploadUrl'];
+      final String publicUrl = response.data['publicUrl'];
+
+      // B. Đọc bytes
+      final imageBytes = await file.readAsBytes();
+
+      await Dio().put(
+        uploadUrl,
+        data: Stream.fromIterable([imageBytes]),
+        options: Options(
+          headers: {
+            'Content-Type': contentType,
+            'Content-Length': imageBytes.length,
+          },
+        ),
+      );
+
+      return publicUrl;
+    } catch (e) {
+      debugPrint("Lỗi upload avatar: $e");
+      rethrow;
     }
   }
 

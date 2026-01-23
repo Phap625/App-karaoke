@@ -4,7 +4,8 @@ import 'package:shimmer/shimmer.dart';
 
 import '../../../models/song_model.dart';
 import '../../../providers/songs_provider.dart';
-import '../../widgets/song_card.dart';
+import '../../widgets/song_item.dart';
+import 'song_search_delagate.dart';
 
 class SongsScreen extends StatefulWidget {
   final Function(SongModel) onSongClick;
@@ -48,7 +49,12 @@ class _SongsScreenState extends State<SongsScreen> with AutomaticKeepAliveClient
             IconButton(
               icon: const Icon(Icons.search, color: Colors.black),
               onPressed: () {
-                // Xử lý tìm kiếm
+                showSearch(
+                  context: context,
+                  delegate: SongSearchDelegate(
+                    onSongClick: widget.onSongClick,
+                  ),
+                );
               },
             ),
           ],
@@ -189,7 +195,7 @@ class _SongTabContent extends StatelessWidget {
           return Consumer<SongsProvider>(
             builder: (context, provider, child) {
               final isLiked = provider.isSongLiked(song.id);
-              return SongCard(
+              return SongItem(
                 song: song,
                 isLiked: isLiked,
                 onLike: () {

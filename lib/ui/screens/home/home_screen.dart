@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../services/notification_service.dart';
+import '../../../services/auth_service.dart';
 import '../../../services/song_service.dart';
 import '../../../services/event_service.dart';
 import '../../../services/moment_service.dart';
@@ -8,7 +8,8 @@ import '../../../models/song_model.dart';
 import '../../../models/event_model.dart';
 import '../../../models/moment_model.dart';
 import '../../widgets/event_banner.dart';
-import '../../widgets/home_song_card.dart';
+import '../../widgets/home_song_item.dart';
+import '../moments/moment_detail_screen.dart';
 import '../songs/song_detail_screen.dart';
 import 'event_detail_screen.dart';
 import 'dart:async';
@@ -57,6 +58,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadUserData() async {
+    if (AuthService.instance.isGuest) {
+      if (mounted) setState(() => _userName = "Khách");
+      return;
+    }
     final user = _supabase.auth.currentUser;
     if (user != null) {
       final data = await _supabase.from('users').select('full_name').eq('id', user.id).maybeSingle();
@@ -66,17 +71,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadRankings() async {
     try {
-      final songOverview = await SongService.instance.getSongsOverview();
-      final moments = await MomentService().getPublicFeed(limit: 5);
-      
+      final songs = await SongService.instance.getTopViewedSongs(limit: 5);
       if (mounted) {
-        setState(() {
-          _topSongs = songOverview.popular;
-          _topMoments = moments;
-        });
+        setState(() => _topSongs = songs);
       }
     } catch (e) {
-      debugPrint("Lỗi load bảng xếp hạng: $e");
+      debugPrint("Lỗi tải Top Songs: $e");
+    }
+    try {
+      final moments = await MomentService.instance.getTopLikedMoments(limit: 5);
+      if (mounted) {
+        setState(() => _topMoments = moments);
+      }
+    } catch (e) {
+      debugPrint("Lỗi tải Top Moments: $e");
     }
   }
 
@@ -202,7 +210,7 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       itemBuilder: (context, index) {
         final song = _topSongs[index];
-        return HomeSongCard(
+        return HomeSongItem(
           song: song, 
           rank: index + 1,
           onTap: () {
@@ -229,43 +237,129 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       itemBuilder: (context, index) {
         final moment = _topMoments[index];
-        final String displayName = moment.userName ?? "Người dùng";
-        
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.white, 
-            borderRadius: BorderRadius.circular(16), 
-            border: Border.all(color: Colors.grey[100]!)
-          ),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 30,
-                child: Text('${index + 1}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: index == 0 ? Colors.orange : Colors.grey[400])),
+        // Lấy tên và avatar, fallback nếu null
+        final String displayName = (moment.userName != null && moment.userName!.isNotEmpty)
+            ? moment.userName!
+            : "Người dùng";
+        final String? avatarUrl = moment.userAvatar;
+
+        return GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => MomentDetailScreen(
+                  momentId: moment.id,
+                  initialMoment: moment,
+                ),
               ),
-              const SizedBox(width: 8),
-              CircleAvatar(
-                radius: 25,
-                backgroundImage: moment.userAvatar != null && moment.userAvatar!.isNotEmpty ? NetworkImage(moment.userAvatar!) : null,
-                child: (moment.userAvatar == null || moment.userAvatar!.isEmpty) ? Text(displayName.isNotEmpty ? displayName[0].toUpperCase() : "?") : null,
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                  Text(moment.description ?? 'Bản thu âm mới', style: const TextStyle(color: Colors.grey, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
-                ]),
-              ),
-              Row(
-                children: [
-                  const Icon(Icons.favorite, color: Colors.red, size: 16),
-                  const SizedBox(width: 4),
-                  Text('${moment.likesCount}', style: TextStyle(color: Colors.grey[600], fontSize: 13, fontWeight: FontWeight.bold)),
-                ],
-              ),
-            ],
+            );
+          },
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.grey[100]!),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.03),
+                    blurRadius: 5,
+                    offset: const Offset(0, 2),
+                  )
+                ]
+            ),
+            child: Row(
+              children: [
+                // Số thứ tự ranking
+                SizedBox(
+                  width: 30,
+                  child: Text(
+                      '${index + 1}',
+                      style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          color: index == 0 ? Colors.orange : Colors.grey[400]
+                      )
+                  ),
+                ),
+                const SizedBox(width: 8),
+
+                // Avatar người đăng
+                Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: CircleAvatar(
+                    radius: 24,
+                    backgroundColor: Colors.grey[100],
+                    backgroundImage: (avatarUrl != null && avatarUrl.isNotEmpty)
+                        ? NetworkImage(avatarUrl)
+                        : null,
+                    child: (avatarUrl == null || avatarUrl.isEmpty)
+                        ? Text(
+                      displayName.isNotEmpty ? displayName[0].toUpperCase() : "?",
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+                    )
+                        : null,
+                  ),
+                ),
+                const SizedBox(width: 12),
+
+                // Thông tin Moment
+                Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Tên người đăng
+                        Text(
+                          displayName,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                              color: Colors.black87
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        // Mô tả moment
+                        Text(
+                            moment.description ?? 'Chia sẻ khoảnh khắc',
+                            style: const TextStyle(color: Colors.grey, fontSize: 13),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis
+                        ),
+                      ]
+                  ),
+                ),
+
+                // Số lượt like
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(12)
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.favorite, color: Colors.red, size: 14),
+                      const SizedBox(width: 4),
+                      Text(
+                          '${moment.likesCount}',
+                          style: TextStyle(
+                              color: Colors.red[400],
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold
+                          )
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -273,7 +367,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildEmptyRanking() {
-    return const Center(child: Text("Đang cập nhật...", style: TextStyle(color: Colors.grey)));
+    return const Center(child: Text("Chưa có dữ liệu bảng xếp hạng!", style: TextStyle(color: Colors.grey)));
   }
 
   Widget _buildEventsSection(Color primaryColor) {

@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../models/song_model.dart';
 import '../../../services/song_service.dart';
 import '../../../providers/songs_provider.dart';
-import '../../widgets/song_card.dart';
+import '../../widgets/song_item.dart';
 import '../songs/song_detail_screen.dart';
 
 class FavoritesScreen extends StatefulWidget {
@@ -83,7 +83,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
             itemCount: displayList.length,
             itemBuilder: (context, index) {
               final song = displayList[index];
-              return SongCard(
+              return SongItem(
                 song: song,
                 isLiked: true,
                 onLike: () {

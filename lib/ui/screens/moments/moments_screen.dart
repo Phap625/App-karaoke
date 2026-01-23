@@ -1,14 +1,20 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:visibility_detector/visibility_detector.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shimmer/shimmer.dart';
 import '../../../models/moment_model.dart';
+import '../../../providers/user_provider.dart';
 import '../../../services/moment_service.dart';
 import '../../../services/user_service.dart';
 import '../../../services/auth_service.dart';
 import '../../widgets/moment_item.dart';
 import '../me/me_recordings_screen.dart';
+
+// Enum để phân biệt loại Feed
+enum FeedType { public, following }
 
 class MomentsScreen extends StatefulWidget {
   const MomentsScreen({super.key});
@@ -19,75 +25,24 @@ class MomentsScreen extends StatefulWidget {
 
 class _MomentsScreenState extends State<MomentsScreen> {
   final _supabase = Supabase.instance.client;
-  final ScrollController _scrollController = ScrollController();
-
-  List<Moment> _moments = [];
-  final Set<int> _pendingViewIds = {};
-  Timer? _viewTimer;
-  String? _myDbAvatar;
   bool _isGuest = false;
-  bool _isInitialLoading = true;
-  bool _isLoadingMore = false;
-  int _currentLimit = 10;
-  final int _pageSize = 10;
-  bool _hasMoreData = true;
+
+  // Key để gọi hàm refresh từ bên ngoài (khi đăng bài xong)
+  final GlobalKey<_MomentFeedListState> _publicFeedKey = GlobalKey();
+  final GlobalKey<_MomentFeedListState> _followingFeedKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
     _isGuest = AuthService.instance.isGuest;
-    _loadData();
-    _viewTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      _flushViewsToServer();
-    });
-    _scrollController.addListener(() {
-      if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200 &&
-          !_isLoadingMore &&
-          _hasMoreData &&
-          !_isInitialLoading) {
-        _loadMoreData();
-      }
-    });
   }
 
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    _viewTimer?.cancel();
-    _flushViewsToServer();
-    super.dispose();
-  }
-
-  // --- Hàm xử lý khi xoá Moment ---
-  void _handleDeleteMoment(int momentId) {
-    setState(() {
-      _moments.removeWhere((m) => m.id == momentId);
-    });
-  }
-
-  // -- Hàm đẩy dữ liệu view lên server ---
-  void _flushViewsToServer() {
-    if (_pendingViewIds.isEmpty) return;
-    final listToSend = _pendingViewIds.toList();
-    _pendingViewIds.clear();
-    MomentService.instance.markMomentsAsViewed(listToSend);
-  }
-
-  // --- Hàm xử lý khi 1 item xuất hiện ---
-  void _onItemVisible(int momentId) {
-    _pendingViewIds.add(momentId);
-    if (_pendingViewIds.length >= 10) {
-      _flushViewsToServer();
-    }
-  }
-
-  // --- Hiện thông báo với Guest ---
   void _showLoginDialog() {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text("Yêu cầu đăng nhập"),
-        content: const Text("Bạn cần đăng nhập để chia sẻ khoảnh khắc của mình."),
+        content: const Text("Bạn cần đăng nhập để thực hiện chức năng này."),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -108,71 +63,6 @@ class _MomentsScreenState extends State<MomentsScreen> {
     );
   }
 
-  // Hàm load dữ liệu ban đầu (Đồng bộ avatar + feed)
-  Future<void> _loadData() async {
-    setState(() => _isInitialLoading = true);
-    _currentLimit = _pageSize;
-    _hasMoreData = true;
-
-    try {
-      final results = await Future.wait([
-        MomentService.instance.getPublicFeed(limit: _currentLimit, offset: 0),
-        UserService.instance.getCurrentUserAvatar(),
-      ]);
-
-      if (mounted) {
-        setState(() {
-          _moments = results[0] as List<Moment>;
-          _myDbAvatar = results[1] as String?;
-          if (_moments.length < _currentLimit) _hasMoreData = false;
-          _isInitialLoading = false;
-        });
-      }
-    } catch (e) {
-      debugPrint("Lỗi load feed: $e");
-      if (mounted) setState(() => _isInitialLoading = false);
-    }
-  }
-
-  // Hàm load thêm dữ liệu (Lazy Loading)
-  Future<void> _loadMoreData() async {
-    setState(() => _isLoadingMore = true);
-
-    try {
-      final newOffset = _moments.length;
-      final newMoments = await MomentService.instance.getPublicFeed(
-          limit: _pageSize,
-          offset: newOffset
-      );
-
-      if (mounted) {
-        setState(() {
-          if (newMoments.isEmpty) {
-            _hasMoreData = false;
-          } else {
-            _moments.addAll(newMoments);
-            if (newMoments.length < _pageSize) _hasMoreData = false;
-          }
-          _isLoadingMore = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _isLoadingMore = false);
-    }
-  }
-
-  // Refresh chỉ feed
-  Future<void> _refreshFeedOnly() async {
-    _currentLimit = _pageSize;
-    _hasMoreData = true;
-    final moments = await MomentService.instance.getPublicFeed(limit: _currentLimit, offset: 0);
-    if (mounted) {
-      setState(() {
-        _moments = moments;
-      });
-    }
-  }
-
   void _onUploadPressed() async {
     if (_isGuest) {
       _showLoginDialog();
@@ -184,92 +74,65 @@ class _MomentsScreenState extends State<MomentsScreen> {
         builder: (context) => const MeRecordingsScreen(isPickingMode: true),
       ),
     );
+
+    // Sau khi đăng bài xong, refresh cả 2 tab
     if (mounted) {
-      setState(() => _isInitialLoading = true);
-      try {
-        await Future.delayed(const Duration(milliseconds: 500));
-        await _refreshFeedOnly();
-      } catch (e) {
-        debugPrint("Lỗi refresh sau khi upload: $e");
-      } finally {
-        if (mounted) {
-          setState(() => _isInitialLoading = false);
-        }
-      }
+      // Đợi 1 chút để server xử lý
+      await Future.delayed(const Duration(milliseconds: 500));
+      _publicFeedKey.currentState?.refresh();
+      _followingFeedKey.currentState?.refresh();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text("Khoảnh khắc", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
         backgroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: RefreshIndicator(
-        onRefresh: _loadData,
-        color: const Color(0xFFA66BFF),
-        child: CustomScrollView(
-          controller: _scrollController,
-          slivers: [
-            // PHẦN 1: HEADER (Đăng bài)
-            SliverToBoxAdapter(
-              child: _isInitialLoading
-                  ? _buildHeaderSkeleton()
-                  : _buildCreatePostArea(),
+        appBar: AppBar(
+          title: const Text("Khám phá", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+          backgroundColor: Colors.white,
+          elevation: 0,
+        ),
+        body: Column(
+          children: [
+            // 1. THANH ĐĂNG BÀI (Luôn hiển thị trên cùng)
+            _buildCreatePostArea(),
+
+            // 2. TAB BAR
+            const TabBar(
+              labelColor: Color(0xFFA66BFF),
+              unselectedLabelColor: Colors.grey,
+              indicatorColor: Color(0xFFA66BFF),
+              tabs: [
+                Tab(text: "Đề xuất"),
+                Tab(text: "Đang theo dõi"),
+              ],
             ),
 
-            // PHẦN 2: DANH SÁCH MOMENTS
-            _isInitialLoading
-                ? SliverList(
-              delegate: SliverChildBuilderDelegate(
-                    (context, index) => _buildMomentItemSkeleton(),
-                childCount: 5,
-              ),
-            )
-                : _moments.isEmpty
-                ? const SliverFillRemaining(
-              child: Center(
-                child: Text("Chưa có khoảnh khắc nào.\nHãy là người đầu tiên chia sẻ!",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey)
-                ),
-              ),
-            )
-                : SliverList(
-              delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                  final moment = _moments[index];
-                  return VisibilityDetector(
-                    key: Key('moment-view-${moment.id}'),
-                    onVisibilityChanged: (visibilityInfo) {
-                      if (visibilityInfo.visibleFraction > 0.85) {
-                        _onItemVisible(moment.id);
-                      }
-                    },
-                    child: MomentItem(
-                      moment: moment,
-                      onDeleted: () => _handleDeleteMoment(moment.id),
-                    ),
-                  );
-                },
-                childCount: _moments.length,
+            // 3. NỘI DUNG TAB (Danh sách bài viết)
+            Expanded(
+              child: TabBarView(
+                children: [
+                  // Tab 1: Public Feed
+                  MomentFeedList(
+                    key: _publicFeedKey,
+                    feedType: FeedType.public,
+                    isGuest: _isGuest,
+                  ),
+
+                  // Tab 2: Following Feed
+                  _isGuest
+                      ? _buildGuestView()
+                      : MomentFeedList(
+                    key: _followingFeedKey,
+                    feedType: FeedType.following,
+                    isGuest: _isGuest,
+                  ),
+                ],
               ),
             ),
-
-            // PHẦN 3: SKELETON KHI LAZY LOAD
-            if (_isLoadingMore)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: _buildMomentItemSkeleton(),
-                ),
-              ),
-
-            // Padding bottom
-            const SliverToBoxAdapter(child: SizedBox(height: 20)),
           ],
         ),
       ),
@@ -277,13 +140,15 @@ class _MomentsScreenState extends State<MomentsScreen> {
   }
 
   Widget _buildCreatePostArea() {
-    final displayAvatar = _myDbAvatar ?? _supabase.auth.currentUser?.userMetadata?['avatar_url'];
+    final userProvider = context.watch<UserProvider>();
+    final displayAvatar = userProvider.currentUser?.avatarUrl ??
+        _supabase.auth.currentUser?.userMetadata?['avatar_url'];
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(bottom: BorderSide(color: Colors.grey.shade200, width: 8)),
+        // border: Border(bottom: BorderSide(color: Colors.grey.shade200, width: 1)),
       ),
       child: Row(
         children: [
@@ -320,30 +185,245 @@ class _MomentsScreenState extends State<MomentsScreen> {
     );
   }
 
-  Widget _buildHeaderSkeleton() {
-    return Shimmer.fromColors(
-      baseColor: Colors.grey[300]!,
-      highlightColor: Colors.grey[100]!,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: Colors.grey.shade200, width: 8)),
-        ),
-        child: Row(
+  Widget _buildGuestView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.lock_outline, size: 60, color: Colors.grey),
+          const SizedBox(height: 16),
+          const Text("Đăng nhập để xem bài viết từ bạn bè", style: TextStyle(color: Colors.grey)),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _showLoginDialog,
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA66BFF)),
+            child: const Text("Đăng nhập ngay"),
+          )
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// WIDGET CON: DANH SÁCH FEED (TÁI SỬ DỤNG CHO CẢ 2 TAB)
+// ============================================================================
+
+class MomentFeedList extends StatefulWidget {
+  final FeedType feedType;
+  final bool isGuest;
+
+  const MomentFeedList({
+    super.key,
+    required this.feedType,
+    required this.isGuest
+  });
+
+  @override
+  State<MomentFeedList> createState() => _MomentFeedListState();
+}
+
+// Sử dụng AutomaticKeepAliveClientMixin để giữ trạng thái khi chuyển Tab
+class _MomentFeedListState extends State<MomentFeedList> with AutomaticKeepAliveClientMixin {
+  final ScrollController _scrollController = ScrollController();
+  List<Moment> _moments = [];
+
+  // Xử lý View
+  final Set<int> _pendingViewIds = {};
+  Timer? _viewTimer;
+
+  // Trạng thái load
+  bool _isInitialLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMoreData = true;
+  final int _pageSize = 10;
+
+  @override
+  bool get wantKeepAlive => true; // Giữ trạng thái Tab
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+
+    // Timer đẩy view lên server mỗi 5 giây
+    _viewTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      _flushViewsToServer();
+    });
+
+    // Lazy Loading Listener
+    _scrollController.addListener(() {
+      if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200 &&
+          !_isLoadingMore &&
+          _hasMoreData &&
+          !_isInitialLoading) {
+        _loadMoreData();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    _viewTimer?.cancel();
+    _flushViewsToServer();
+    super.dispose();
+  }
+
+  // --- Public Method: Gọi refresh từ bên ngoài ---
+  Future<void> refresh() async {
+    await _loadData();
+  }
+
+  // --- Tải dữ liệu lần đầu ---
+  Future<void> _loadData() async {
+    if(!mounted) return;
+    setState(() {
+      _isInitialLoading = true;
+      _hasMoreData = true;
+    });
+
+    try {
+      List<Moment> data = [];
+
+      if (widget.feedType == FeedType.public) {
+        data = await MomentService.instance.getPublicFeed(limit: _pageSize, offset: 0);
+      } else {
+        // Feed Following
+        if (!widget.isGuest) {
+          data = await MomentService.instance.getFollowingFeed(limit: _pageSize, offset: 0);
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _moments = data;
+          if (data.length < _pageSize) _hasMoreData = false;
+          _isInitialLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Lỗi load feed (${widget.feedType}): $e");
+      if (mounted) setState(() => _isInitialLoading = false);
+    }
+  }
+
+  // --- Tải thêm dữ liệu (Phân trang) ---
+  Future<void> _loadMoreData() async {
+    setState(() => _isLoadingMore = true);
+
+    try {
+      final currentOffset = _moments.length;
+      List<Moment> newMoments = [];
+
+      if (widget.feedType == FeedType.public) {
+        newMoments = await MomentService.instance.getPublicFeed(limit: _pageSize, offset: currentOffset);
+      } else {
+        if (!widget.isGuest) {
+          newMoments = await MomentService.instance.getFollowingFeed(limit: _pageSize, offset: currentOffset);
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          if (newMoments.isEmpty) {
+            _hasMoreData = false;
+          } else {
+            _moments.addAll(newMoments);
+            if (newMoments.length < _pageSize) _hasMoreData = false;
+          }
+          _isLoadingMore = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingMore = false);
+    }
+  }
+
+  // --- Xử lý xóa và View ---
+  void _handleDeleteMoment(int momentId) {
+    setState(() {
+      _moments.removeWhere((m) => m.id == momentId);
+    });
+  }
+
+  void _flushViewsToServer() {
+    if (_pendingViewIds.isEmpty) return;
+    final listToSend = _pendingViewIds.toList();
+    _pendingViewIds.clear();
+    MomentService.instance.markMomentsAsViewed(listToSend);
+  }
+
+  void _onItemVisible(int momentId) {
+    _pendingViewIds.add(momentId);
+    if (_pendingViewIds.length >= 10) {
+      _flushViewsToServer();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context); // Cần thiết cho KeepAlive
+
+    if (_isInitialLoading) {
+      return ListView.builder(
+        padding: const EdgeInsets.only(top: 10),
+        itemCount: 5,
+        itemBuilder: (context, index) => _buildMomentItemSkeleton(),
+      );
+    }
+
+    if (_moments.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const CircleAvatar(radius: 20, backgroundColor: Colors.white),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Container(
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(30),
-                ),
-              ),
+            Icon(
+                widget.feedType == FeedType.public ? Icons.public : Icons.people_outline,
+                size: 50, color: Colors.grey[300]
+            ),
+            const SizedBox(height: 10),
+            Text(
+                widget.feedType == FeedType.public
+                    ? "Chưa có bài đăng đề xuất nào."
+                    : "Bạn chưa theo dõi ai,\nhoặc họ chưa đăng bài đăng nào.",
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.grey)
             ),
           ],
         ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      color: const Color(0xFFA66BFF),
+      child: ListView.builder(
+        controller: _scrollController,
+        padding: const EdgeInsets.only(bottom: 20),
+        itemCount: _moments.length + (_isLoadingMore ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (index == _moments.length) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16.0),
+              child: _buildMomentItemSkeleton(),
+            );
+          }
+
+          final moment = _moments[index];
+          return VisibilityDetector(
+            key: Key('${widget.feedType}-moment-view-${moment.id}'),
+            onVisibilityChanged: (visibilityInfo) {
+              if (visibilityInfo.visibleFraction > 0.85) {
+                _onItemVisible(moment.id);
+              }
+            },
+            child: MomentItem(
+              moment: moment,
+              onDeleted: () => _handleDeleteMoment(moment.id),
+            ),
+          );
+        },
       ),
     );
   }
@@ -354,6 +434,7 @@ class _MomentsScreenState extends State<MomentsScreen> {
       highlightColor: Colors.grey[100]!,
       child: Container(
         padding: const EdgeInsets.all(16),
+        margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
         ),
@@ -376,8 +457,6 @@ class _MomentsScreenState extends State<MomentsScreen> {
             ),
             const SizedBox(height: 12),
             Container(width: double.infinity, height: 12, color: Colors.white),
-            const SizedBox(height: 6),
-            Container(width: 200, height: 12, color: Colors.white),
             const SizedBox(height: 12),
             Container(
               height: 60,
@@ -386,15 +465,6 @@ class _MomentsScreenState extends State<MomentsScreen> {
                 borderRadius: BorderRadius.circular(30),
               ),
             ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(width: 60, height: 20, color: Colors.white),
-                Container(width: 60, height: 20, color: Colors.white),
-                Container(width: 60, height: 20, color: Colors.white),
-              ],
-            )
           ],
         ),
       ),

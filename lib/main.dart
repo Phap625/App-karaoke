@@ -27,6 +27,7 @@ import 'ui/screens/me/policy_and_support_screen.dart';
 import 'services/auth_service.dart';
 import 'services/notification_service.dart';
 import 'providers/songs_provider.dart';
+import 'providers/user_provider.dart';
 import 'utils/token_manager.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -56,6 +57,7 @@ void main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => SongsProvider()),
+        ChangeNotifierProvider(create: (_) => UserProvider()..initUser()),
       ],
       child: const MyApp(),
     ),

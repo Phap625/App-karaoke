@@ -128,10 +128,10 @@ class _PolicyAndSupportScreenState extends State<PolicyAndSupportScreen> {
         borderRadius: BorderRadius.circular(15),
         border: Border.all(color: Colors.deepPurple.withOpacity(0.2)),
       ),
-      child: Column(
+      child: const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             "Cần hỗ trợ trực tiếp?",
             style: TextStyle(
                 fontWeight: FontWeight.bold,
@@ -139,24 +139,13 @@ class _PolicyAndSupportScreenState extends State<PolicyAndSupportScreen> {
                 color: Colors.deepPurple
             ),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           Row(
-            children: const [
-              Icon(Icons.phone, size: 20, color: Colors.deepPurple),
-              SizedBox(width: 10),
-              Text(
-                "Hotline: 1900 1234",
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: const [
+            children: [
               Icon(Icons.email, size: 20, color: Colors.deepPurple),
               SizedBox(width: 10),
               Text(
-                "Email: support@karaokeapp.vn",
+                "Email: karaokeplusapp@gmail.com",
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
               ),
             ],

@@ -22,7 +22,7 @@ class MomentService extends BaseService {
       final fileName = file.path.split('/').last;
 
       // B1: Lấy link upload
-      final presignedRes = await dio.post('/api/user/upload-audio/presigned-url', data: {
+      final presignedRes = await dio.post('/api/user/upload/presigned-url', data: {
         "fileName": fileName,
         "fileType": "audio/wav",
       });
@@ -46,7 +46,7 @@ class MomentService extends BaseService {
       );
 
       // B3: Lưu DB
-      final saveRes = await dio.post('/api/user/upload-audio/save-metadata', data: {
+      final saveRes = await dio.post('/api/user/upload/save-metadata', data: {
         "audioUrl": publicUrl,
         "description": description,
         "visibility": visibility,
@@ -119,6 +119,19 @@ class MomentService extends BaseService {
   // --- Feed Following ---
   Future<List<Moment>> getFollowingFeed({int limit = 20, int offset = 0}) async {
     return await safeExecution(() => _callFeedRpc('get_following_feed', limit, offset));
+  }
+
+  // --- Lấy Top Moments (Xếp hạng theo lượt like, Public) ---
+  Future<List<Moment>> getTopLikedMoments({int limit = 5}) async {
+    return await safeExecution(() async {
+      final List<dynamic> response = await _supabase.rpc(
+        'get_top_liked_moments',
+        params: {
+          'p_limit': limit,
+        },
+      );
+      return response.map((item) => Moment.fromJson(item)).toList();
+    });
   }
 
   // --- User Moments ---

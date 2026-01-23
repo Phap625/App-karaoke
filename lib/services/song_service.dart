@@ -33,6 +33,22 @@ class SongService extends BaseService {
     });
   }
 
+  Future<List<SongModel>> getTopViewedSongs({int limit = 5}) async {
+    try {
+      final List<dynamic> response = await _supabase.rpc(
+        'get_top_viewed_songs',
+        params: {'p_limit': limit},
+      );
+
+      if (response.isEmpty) return [];
+
+      return response.map((item) => SongModel.fromJson(item)).toList();
+    } catch (e) {
+      debugPrint("🔴 Lỗi lấy Top Songs: $e");
+      return [];
+    }
+  }
+
   Future<List<SongModel>> searchSongs(String query) async {
     return await safeExecution(() async {
       final response = await _supabase
